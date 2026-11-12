@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { supabase, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
+import { startUpdateChecks, stopUpdateChecks } from "./lib/updater";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
 import ReceiverView from "./views/ReceiverView.vue";
@@ -81,6 +82,8 @@ let sub: { unsubscribe(): void } | null = null;
 onMounted(async () => {
   if ("__TAURI_INTERNALS__" in window && !isAlertWindow) {
     await getCurrentWindow().setMinSize(new LogicalSize(MIN_WIDTH, MIN_HEIGHT));
+    // Only the main window checks for updates; the alert popup is short-lived.
+    startUpdateChecks();
   }
   const { data } = await supabase.auth.getSession();
   await loadProfile(data.session?.user.id ?? null);
@@ -93,6 +96,7 @@ onMounted(async () => {
 onUnmounted(() => {
   sub?.unsubscribe();
   stopPresence();
+  stopUpdateChecks();
 });
 
 function onAvatarSaved(url: string | null) {
