@@ -14,9 +14,6 @@ export interface ChatMessage {
 
 export type ChatTarget = { kind: "user" | "group"; id: string };
 
-// Group shout progress: how many members acknowledged, and who still hasn't.
-export interface AckSummary { done: number; total: number; pending: string[] }
-
 // History of everything I've sent, kept live through Realtime.
 // Rows are stored by id so an insert echo / update never duplicates a message.
 export function useThread(meId: Ref<string> | string) {

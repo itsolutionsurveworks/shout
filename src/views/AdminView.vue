@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
-import { ChevronDown, Plus, ScrollText, Search, UserRound, UsersRound } from "lucide-vue-next";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, ScrollText, Search, UserRound, UsersRound } from "lucide-vue-next";
 import { supabase, type Profile, type Role } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
 import { chatTime } from "../lib/thread";
+import { receiptLabel, receiptOf } from "../lib/receipts";
+import ReceiptIcon from "../components/ReceiptIcon.vue";
 import UserAvatar from "../components/UserAvatar.vue";
 import ScrollHint from "../components/ScrollHint.vue";
-import BuildFooter from "../components/BuildFooter.vue";
 
 const users = ref<Profile[]>([]);
 const groups = ref<{ id: string; name: string; members: string[] }[]>([]);
@@ -20,6 +21,24 @@ const memberQuery = ref("");
 // Same frame as the People tab: a list on the left, the selected section on the right.
 const section = ref<"users" | "groups" | "audit">("users");
 const query = ref("");
+
+// Status column filter: the column header is the dropdown trigger.
+type StatusFilter = "all" | "online" | "offline";
+const statusFilter = ref<StatusFilter>("all");
+const statusOptions: { key: StatusFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "online", label: "Online" },
+  { key: "offline", label: "Offline" },
+];
+const statusMenuOpen = ref(false);
+const statusMenu = ref<HTMLElement | null>(null);
+function pickStatus(key: StatusFilter) {
+  statusFilter.value = key;
+  statusMenuOpen.value = false;
+}
+function closeStatusMenuOnOutside(e: PointerEvent) {
+  if (statusMenuOpen.value && !statusMenu.value?.contains(e.target as Node)) statusMenuOpen.value = false;
+}
 
 async function load() {
   const [u, g, l] = await Promise.all([
@@ -92,14 +111,14 @@ function latency(n: any) {
   return s < 60 ? `${s.toFixed(0)}s` : `${(s / 60).toFixed(1)}m`;
 }
 
-// Same wording as the chat receipts: one tick, two grey ticks, two blue ticks ("Seen").
-const statusLabel = (s: string) => (s === "acknowledged" ? "Seen" : s === "delivered" ? "Delivered" : "Sent");
-const statusClass = (s: string) =>
-  s === "acknowledged" ? "bg-emerald-100 text-emerald-800" : s === "delivered" ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-500";
 
 const q = computed(() => query.value.trim().toLowerCase());
 const shownUsers = computed(() =>
-  users.value.filter((u) => !q.value || u.full_name.toLowerCase().includes(q.value) || u.email.toLowerCase().includes(q.value) || (u.department ?? "").toLowerCase().includes(q.value)));
+  users.value.filter((u) => {
+    if (statusFilter.value === "online" && !onlineIds.value.has(u.id)) return false;
+    if (statusFilter.value === "offline" && onlineIds.value.has(u.id)) return false;
+    return !q.value || u.full_name.toLowerCase().includes(q.value) || u.email.toLowerCase().includes(q.value) || (u.department ?? "").toLowerCase().includes(q.value);
+  }));
 const shownGroups = computed(() => groups.value.filter((g) => !q.value || g.name.toLowerCase().includes(q.value)));
 const selectedGroup = computed(() => groups.value.find((g) => g.id === selectedGroupId.value) ?? null);
 const allShownSelected = computed(() => {
@@ -143,6 +162,14 @@ const groupPeople = computed(() => {
 const shownLogs = computed(() =>
   logs.value.filter((n) => !q.value || (n.message ?? "").toLowerCase().includes(q.value)
     || (n.sender?.full_name ?? "").toLowerCase().includes(q.value) || (n.recipient?.full_name ?? "").toLowerCase().includes(q.value)));
+
+// Audit log pagination: a new search starts on page 1; live reloads keep the page but clamp it.
+const PAGE_SIZE = 20;
+const page = ref(0);
+const pageCount = computed(() => Math.max(1, Math.ceil(shownLogs.value.length / PAGE_SIZE)));
+const pagedLogs = computed(() => shownLogs.value.slice(page.value * PAGE_SIZE, (page.value + 1) * PAGE_SIZE));
+watch(q, () => { page.value = 0; });
+watch(pageCount, (c) => { if (page.value > c - 1) page.value = c - 1; });
 
 const nav = computed(() => [
   { key: "users" as const, label: "Users", icon: UserRound, count: users.value.length },
@@ -189,12 +216,14 @@ onMounted(() => {
   channel.subscribe();
   timer = setInterval(refresh, 30000);
   window.addEventListener("focus", refresh);
+  document.addEventListener("pointerdown", closeStatusMenuOnOutside);
 });
 onUnmounted(() => {
   offRefresh?.();
   clearInterval(timer);
   clearTimeout(pending);
   window.removeEventListener("focus", refresh);
+  document.removeEventListener("pointerdown", closeStatusMenuOnOutside);
   supabase.removeChannel(channel);
 });
 </script>
@@ -204,7 +233,6 @@ onUnmounted(() => {
     <!-- Left list, narrower than the chat list -->
     <aside class="flex w-[22%] min-w-[160px] max-w-[220px] shrink-0 flex-col border-r border-slate-200 bg-white">
       <div class="px-3 pb-3 pt-4">
-        <p class="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Admin</p>
         <div class="relative">
           <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <input v-model="query" :placeholder="`Search ${title.toLowerCase()}`"
@@ -239,14 +267,35 @@ onUnmounted(() => {
             <table class="w-full table-fixed text-sm">
               <thead class="sticky top-0 z-10 bg-white">
                 <tr class="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                  <th class="w-[42%] px-4 py-2.5 font-medium">User</th>
-                  <th class="w-[20%] px-2 py-2.5 font-medium">Department</th>
-                  <th class="w-[20%] px-2 py-2.5 font-medium">Role</th>
-                  <th class="w-[18%] px-4 py-2.5 font-medium">Status</th>
+                  <th class="w-[5%] px-4 py-2.5 font-medium">#</th>
+                  <th class="w-[39%] px-4 py-2.5 font-medium">User</th>
+                  <th class="w-[19%] px-2 py-2.5 font-medium">Department</th>
+                  <th class="w-[19%] px-2 py-2.5 font-medium">Role</th>
+                  <th class="relative w-[18%] px-4 py-2.5 font-medium" ref="statusMenu">
+                    <button type="button" aria-haspopup="listbox" :aria-expanded="statusMenuOpen"
+                      class="flex items-center gap-1 rounded uppercase tracking-wide hover:text-slate-900 focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500"
+                      :class="statusFilter !== 'all' ? 'text-emerald-700' : ''"
+                      @click="statusMenuOpen = !statusMenuOpen">
+                      {{ statusFilter === "all" ? "Status" : statusOptions.find((o) => o.key === statusFilter)?.label }}
+                      <ChevronDown class="h-3 w-3 shrink-0 transition-transform" :class="statusMenuOpen ? 'rotate-180' : ''" />
+                    </button>
+                    <div v-if="statusMenuOpen" role="listbox"
+                      class="absolute left-2 top-full z-20 mt-1 min-w-[8rem] rounded-lg border border-slate-200 bg-white py-1 normal-case tracking-normal shadow-lg">
+                      <button v-for="o in statusOptions" :key="o.key" type="button" role="option" :aria-selected="statusFilter === o.key"
+                        class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-100"
+                        :class="statusFilter === o.key ? 'font-semibold text-emerald-800' : 'text-slate-700'"
+                        @click="pickStatus(o.key)">
+                        <span class="h-2 w-2 rounded-full"
+                          :class="o.key === 'online' ? 'bg-emerald-500' : o.key === 'offline' ? 'bg-slate-300' : 'bg-transparent'" />
+                        {{ o.label }}
+                      </button>
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="u in shownUsers" :key="u.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                <tr v-for="(u, i) in shownUsers" :key="u.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                  <td class="px-4 py-2.5 text-xs tabular-nums text-slate-400">{{ i + 1 }}</td>
                   <td class="px-4 py-2.5">
                     <span class="flex items-center gap-2.5">
                       <UserAvatar :user="u" size-class="h-8 w-8" />
@@ -298,12 +347,13 @@ onUnmounted(() => {
                 </button>
               </form>
               <div class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto px-2 py-1.5">
-                <button v-for="g in shownGroups" :key="g.id"
+                <button v-for="(g, i) in shownGroups" :key="g.id"
                   class="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors"
                   :class="g.id === selectedGroupId
                     ? 'bg-white font-semibold text-emerald-800 shadow-sm ring-1 ring-slate-200'
                     : 'font-medium text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'"
                   @click="selectedGroupId = g.id">
+                  <span class="w-4 shrink-0 text-right text-[11px] tabular-nums text-slate-400">{{ i + 1 }}</span>
                   <span class="min-w-0 flex-1 truncate" :title="g.name">{{ g.name }}</span>
                   <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
                     :class="g.id === selectedGroupId ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'">{{ g.members.length }}</span>
@@ -324,8 +374,9 @@ onUnmounted(() => {
                 </label>
               </div>
               <div class="min-h-0 flex-1 overflow-auto">
-                <label v-for="u in groupPeople" :key="u.id"
+                <label v-for="(u, i) in groupPeople" :key="u.id"
                   class="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-2 last:border-0 hover:bg-slate-50">
+                  <span class="w-5 shrink-0 text-right text-xs tabular-nums text-slate-400">{{ i + 1 }}</span>
                   <UserAvatar :user="u" size-class="h-8 w-8" />
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-sm font-medium text-slate-900">{{ u.full_name }}</span>
@@ -346,19 +397,22 @@ onUnmounted(() => {
 
         <!-- Audit log -->
         <template v-if="section === 'audit'">
-          <ScrollHint>
+          <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
+          <ScrollHint :card="false">
             <table class="w-full table-fixed text-xs">
               <thead class="sticky top-0 z-10 bg-white">
                 <tr class="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                  <th class="w-[15%] px-2 py-2.5 font-medium">Time</th>
-                  <th class="w-[17%] px-2 py-2.5 font-medium">From / To</th>
-                  <th class="w-[39%] px-2 py-2.5 font-medium">Message</th>
+                  <th class="w-[5%] px-2 py-2.5 font-medium">#</th>
+                  <th class="w-[10%] px-2 py-2.5 font-medium">Time</th>
+                  <th class="w-[20%] px-2 py-2.5 font-medium">From / To</th>
+                  <th class="w-[37%] px-2 py-2.5 font-medium">Message</th>
                   <th class="w-[14%] px-2 py-2.5 font-medium">Status</th>
-                  <th class="w-[15%] px-2 py-2.5 font-medium">Latency</th>
+                  <th class="w-[14%] px-2 py-2.5 font-medium">Latency</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="n in shownLogs" :key="n.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                <tr v-for="(n, i) in pagedLogs" :key="n.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                  <td class="px-2 py-2.5 text-[10px] tabular-nums text-slate-400">{{ page * PAGE_SIZE + i + 1 }}</td>
                   <td class="truncate px-2 py-2.5 text-[10px] text-slate-500">{{ chatTime(n.created_at) }}</td>
                   <td class="px-2 py-2.5 text-xs">
                     <span class="block truncate font-medium text-slate-900" :title="n.sender?.full_name">{{ n.sender?.full_name }}</span>
@@ -366,7 +420,10 @@ onUnmounted(() => {
                   </td>
                   <td class="truncate px-2 py-2.5 text-slate-700" :title="n.message">{{ n.message }}</td>
                   <td class="px-2 py-2.5">
-                    <span class="inline-block max-w-full truncate whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="statusClass(n.status)">{{ statusLabel(n.status) }}</span>
+                    <span class="flex items-center gap-1.5 text-[11px]" :class="receiptOf(n.status) === 'seen' ? 'text-sky-600' : 'text-slate-500'">
+                      <ReceiptIcon :receipt="receiptOf(n.status)" />
+                      {{ receiptLabel[receiptOf(n.status)] }}
+                    </span>
                   </td>
                   <td class="truncate px-2 py-2.5 text-xs text-slate-500">{{ latency(n) }}</td>
                 </tr>
@@ -374,11 +431,23 @@ onUnmounted(() => {
             </table>
             <p v-if="!shownLogs.length" class="p-6 text-center text-sm text-slate-400">No shouts found</p>
           </ScrollHint>
+          <div v-if="shownLogs.length > PAGE_SIZE" class="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
+            <span class="tabular-nums">{{ page * PAGE_SIZE + 1 }}–{{ Math.min((page + 1) * PAGE_SIZE, shownLogs.length) }} of {{ shownLogs.length }}</span>
+            <div class="flex items-center gap-1">
+              <button :disabled="page === 0" title="Previous page" aria-label="Previous page" @click="page--"
+                class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
+                <ChevronLeft class="h-4 w-4" />
+              </button>
+              <span class="px-2 tabular-nums">Page {{ page + 1 }} of {{ pageCount }}</span>
+              <button :disabled="page >= pageCount - 1" title="Next page" aria-label="Next page" @click="page++"
+                class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
+                <ChevronRight class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          </div>
         </template>
       </div>
-      <footer class="flex justify-end border-t border-slate-200 bg-white px-5 py-1.5">
-        <BuildFooter />
-      </footer>
     </section>
   </div>
 </template>

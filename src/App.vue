@@ -13,6 +13,7 @@ import AdminView from "./views/AdminView.vue";
 import NotificationModal from "./views/NotificationModal.vue";
 import ProfileModal from "./views/ProfileModal.vue";
 import UserAvatar from "./components/UserAvatar.vue";
+import BuildFooter from "./components/BuildFooter.vue";
 import { ChevronDown, LogOut, RotateCw, UserRoundPen } from "lucide-vue-next";
 
 // The "alert" window is a small frameless popup that shows only the shout modal.
@@ -41,9 +42,10 @@ async function loadProfile(userId: string | null) {
 // Views fill whatever size the window has. We only apply the default when the view
 // changes, so a manual resize is not overwritten.
 // People and Admin share one frame, so switching tabs never resizes the window.
-const DEFAULT_CONTENT: Record<"login" | "main" | "receiver", [number, number]> = {
+const DEFAULT_CONTENT: Record<"login" | "main" | "admin" | "receiver", [number, number]> = {
   login: [400, 340],
   main: [800, 560],
+  admin: [920, 560],
   receiver: [400, 560],
 };
 const MIN_WIDTH = 360;
@@ -51,7 +53,8 @@ const MIN_HEIGHT = 300;
 
 const viewKey = computed<keyof typeof DEFAULT_CONTENT>(() => {
   if (!me.value) return "login";
-  return me.value.role === "receiver" ? "receiver" : "main";
+  if (me.value.role === "receiver") return "receiver";
+  return me.value.role === "admin" ? "admin" : "main";
 });
 const header = ref<HTMLElement | null>(null);
 const loginView = ref<{ $el: HTMLElement } | null>(null);
@@ -190,6 +193,11 @@ async function logout() {
         <AdminView v-else-if="me.role === 'admin' && tab === 'admin'" />
       </KeepAlive>
     </main>
+    <!-- Build footer spans the full window width on the People and Admin views (receivers have it in their own bar) -->
+    <footer v-if="me.role !== 'receiver'"
+      class="flex shrink-0 justify-center border-t border-slate-200 bg-white px-5 py-1.5">
+      <BuildFooter />
+    </footer>
     <ProfileModal v-if="showProfile" :me="me" @close="showProfile = false"
       @saved="onAvatarSaved" />
   </div>

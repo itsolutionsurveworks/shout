@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { Send, Users } from "lucide-vue-next";
 import type { Notification, Profile } from "../lib/supabase";
-import { dayLabel, type AckSummary, type ChatGroup, type ChatMessage } from "../lib/thread";
+import { dayLabel, type ChatGroup, type ChatMessage } from "../lib/thread";
 import { replyLabel } from "../lib/receipts";
 import ReplyBubble from "./ReplyBubble.vue";
 import UserAvatar from "./UserAvatar.vue";
@@ -54,19 +54,6 @@ const items = computed(() => {
 });
 const nameOf = (id: string) => props.people.find((p) => p.id === id)?.full_name ?? "Someone";
 
-// Group shouts only: acknowledgements out of all members. Members who were offline when it
-// went out have no row, so they count as pending.
-function ackFor(m: ChatMessage): AckSummary | undefined {
-  if (!m.group_id || !props.group) return undefined;
-  const acked = new Set(m.rows.filter((r) => r.status === "acknowledged").map((r) => r.recipient_id));
-  const members = props.group.members;
-  return {
-    done: members.filter((id) => acked.has(id)).length,
-    total: members.length,
-    pending: members.filter((id) => !acked.has(id)).map((id) => nameOf(id)),
-  };
-}
-
 function submit() {
   if (!draft.value.trim() || !props.canSend) return;
   emit("send", draft.value);
@@ -84,27 +71,30 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
 
 <template>
   <div class="relative flex min-h-0 flex-1 flex-col">
-    <header class="flex items-center gap-3 bg-slate-100 px-4 py-2.5">
-      <UserAvatar v-if="user" :user="user" size-class="h-10 w-10" />
-      <span v-else class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Users class="h-5 w-5" /></span>
-      <div class="min-w-0">
-        <h2 class="truncate font-medium leading-tight">{{ user?.full_name ?? group?.name }}</h2>
-        <p class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
-      </div>
-    </header>
-
-    <!-- Chat wallpaper -->
-    <div ref="scroller" class="min-h-0 flex-1 space-y-1.5 overflow-auto bg-slate-50 px-4 py-3">
-      <p v-if="!items.length" class="mx-auto mt-8 w-fit rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-slate-600 shadow-sm">
-        No shouts yet. Tap a quick shout below to send it.
-      </p>
-      <template v-for="{ e, sep } in items" :key="e.id">
-        <div v-if="sep" class="flex justify-center py-1">
-          <span class="rounded-lg bg-white/90 px-3 py-1 text-[11px] font-medium uppercase text-slate-500 shadow-sm">{{ sep }}</span>
+    <!-- Header and chat wallpaper. The info panel is confined to this area, so it covers the
+         header but stops above the quick shouts. -->
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      <header class="flex items-center gap-3 bg-slate-100 px-4 py-2.5">
+        <UserAvatar v-if="user" :user="user" size-class="h-10 w-10" />
+        <span v-else class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Users class="h-5 w-5" /></span>
+        <div class="min-w-0">
+          <h2 class="truncate font-medium leading-tight">{{ user?.full_name ?? group?.name }}</h2>
+          <p class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
         </div>
-        <MessageBubble v-if="e.m" :msg="e.m" :ack="ackFor(e.m)" @info="infoKey = e.m.key" />
-        <ReplyBubble v-else-if="e.reply" :row="e.reply" :name="nameOf(e.reply.recipient_id)" :show-name="!!group" />
-      </template>
+      </header>
+
+      <div ref="scroller" class="min-h-0 flex-1 space-y-1.5 overflow-auto bg-slate-50 px-4 py-3">
+        <p v-if="!items.length" class="mx-auto mt-8 w-fit rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-slate-600 shadow-sm">
+          No shouts yet. Tap a quick shout below to send it.
+        </p>
+        <template v-for="{ e, sep } in items" :key="e.id">
+          <div v-if="sep" class="flex justify-center py-1">
+            <span class="rounded-lg bg-white/90 px-3 py-1 text-[11px] font-medium uppercase text-slate-500 shadow-sm">{{ sep }}</span>
+          </div>
+          <MessageBubble v-if="e.m" :msg="e.m" @info="infoKey = e.m.key" />
+          <ReplyBubble v-else-if="e.reply" :row="e.reply" :name="nameOf(e.reply.recipient_id)" :show-name="!!group" />
+        </template>
+      </div>
     </div>
 
     <!-- Quick shouts are the main way to message: always visible, one tap to send. -->
@@ -126,6 +116,9 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
       </button>
     </form>
 
-    <MessageInfo v-if="infoMsg" :msg="infoMsg" :people="people" :group-members="group?.members" @close="infoKey = null" />
+    <!-- Overlays the whole chat (header, messages, quick shouts, custom message). -->
+    <Transition name="info">
+      <MessageInfo v-if="infoMsg" :msg="infoMsg" :people="people" :group-members="group?.members" @close="infoKey = null" />
+    </Transition>
   </div>
 </template>
