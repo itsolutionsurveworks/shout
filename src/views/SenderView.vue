@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, toRef } from "vue";
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, toRef } from "vue";
 import { MessageCircle } from "lucide-vue-next";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
+import { onRefresh } from "../lib/refresh";
 import { useThread, type ChatGroup, type ChatTarget } from "../lib/thread";
 import ChatList from "../components/ChatList.vue";
 import ChatThread from "../components/ChatThread.vue";
@@ -67,11 +68,17 @@ function showToast(t: string) {
   toastTimer = setTimeout(() => (toast.value = ""), 4000);
 }
 
+// Refresh button: reload people, groups and sent history (KeepAlive: only while shown).
+let offRefresh: (() => void) | null = null;
+onActivated(() => { offRefresh = onRefresh(() => Promise.all([load(), thread.load()])); });
+onDeactivated(() => offRefresh?.());
+
 onMounted(() => {
   load();
   thread.start();
 });
 onUnmounted(() => {
+  offRefresh?.();
   clearTimeout(toastTimer);
   thread.stop();
 });

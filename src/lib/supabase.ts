@@ -33,6 +33,12 @@ export interface Notification {
   acknowledged_at: string | null;
 }
 
+// "Remember me" (on by default). Off means the session is cleared when the app next starts.
+// The password itself is never stored; the session token is what keeps you signed in.
+export const REMEMBER_KEY = "shout.rememberMe";
+export const REMEMBERED_EMAIL_KEY = "shout.rememberedEmail";
+export const shouldRemember = () => localStorage.getItem(REMEMBER_KEY) !== "0";
+
 // Session persists in the WebView's localStorage (survives restarts).
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,

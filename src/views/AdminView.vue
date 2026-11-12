@@ -3,6 +3,7 @@ import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watc
 import { ChevronDown, Plus, ScrollText, Search, UserRound, UsersRound } from "lucide-vue-next";
 import { supabase, type Profile, type Role } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
+import { onRefresh } from "../lib/refresh";
 import { chatTime } from "../lib/thread";
 import UserAvatar from "../components/UserAvatar.vue";
 import ScrollHint from "../components/ScrollHint.vue";
@@ -152,12 +153,18 @@ const title = computed(() => nav.value.find((n) => n.key === section.value)?.lab
 
 // Runs on first show and on every return to the tab (KeepAlive). Existing rows stay until new data arrives.
 // Re-capturing the member order happens here, not in load(), so toggling a member never reshuffles the list.
+// Refresh button: reload users, groups and the audit log while this tab is shown.
+let offRefresh: (() => void) | null = null;
 onActivated(async () => {
   active = true;
+  offRefresh = onRefresh(load);
   await load();
   snapshotMemberOrder();
 });
-onDeactivated(() => { active = false; });
+onDeactivated(() => {
+  active = false;
+  offRefresh?.();
+});
 watch(selectedGroupId, snapshotMemberOrder);
 
 // Live updates: any change to people, groups, memberships or shouts refetches the data
@@ -184,6 +191,7 @@ onMounted(() => {
   window.addEventListener("focus", refresh);
 });
 onUnmounted(() => {
+  offRefresh?.();
   clearInterval(timer);
   clearTimeout(pending);
   window.removeEventListener("focus", refresh);

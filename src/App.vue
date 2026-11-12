@@ -2,9 +2,10 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { supabase, type Profile } from "./lib/supabase";
+import { shouldRemember, supabase, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
 import { startUpdateChecks, stopUpdateChecks } from "./lib/updater";
+import { onRefresh, refreshAll, refreshing } from "./lib/refresh";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
 import ReceiverView from "./views/ReceiverView.vue";
@@ -12,7 +13,7 @@ import AdminView from "./views/AdminView.vue";
 import NotificationModal from "./views/NotificationModal.vue";
 import ProfileModal from "./views/ProfileModal.vue";
 import UserAvatar from "./components/UserAvatar.vue";
-import { ChevronDown, LogOut, UserRoundPen } from "lucide-vue-next";
+import { ChevronDown, LogOut, RotateCw, UserRoundPen } from "lucide-vue-next";
 
 // The "alert" window is a small frameless popup that shows only the shout modal.
 // It runs this same app, so it renders just NotificationModal instead of the dashboard.
@@ -79,12 +80,17 @@ async function fitWindow() {
 watch([viewKey, loading], () => nextTick(fitWindow));
 
 let sub: { unsubscribe(): void } | null = null;
+let offRefresh: (() => void) | null = null;
 onMounted(async () => {
   if ("__TAURI_INTERNALS__" in window && !isAlertWindow) {
     await getCurrentWindow().setMinSize(new LogicalSize(MIN_WIDTH, MIN_HEIGHT));
     // Only the main window checks for updates; the alert popup is short-lived.
     startUpdateChecks();
   }
+  // Only the main window starts a session; "Remember me" off means signing in again after a restart.
+  if (!isAlertWindow && !shouldRemember()) await supabase.auth.signOut({ scope: "local" });
+  // The refresh button reloads the signed-in user's profile too (role or name may have changed).
+  offRefresh = onRefresh(() => me.value && loadProfile(me.value.id));
   const { data } = await supabase.auth.getSession();
   await loadProfile(data.session?.user.id ?? null);
   loading.value = false;
@@ -94,6 +100,7 @@ onMounted(async () => {
   }).data.subscription;
 });
 onUnmounted(() => {
+  offRefresh?.();
   sub?.unsubscribe();
   stopPresence();
   stopUpdateChecks();
@@ -143,7 +150,11 @@ async function logout() {
             @click="tab = 'admin'">Admin</button>
         </nav>
       </div>
-      <div class="relative mb-1.5 flex items-center text-sm">
+      <div class="relative mb-1.5 flex items-center gap-1 text-sm">
+        <button class="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
+          title="Refresh everything" aria-label="Refresh" :disabled="refreshing" @click="refreshAll()">
+          <RotateCw class="h-4 w-4" :class="{ 'animate-spin': refreshing }" />
+        </button>
         <button class="flex items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-slate-100" title="Account menu"
           aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
           <span class="h-2.5 w-2.5 rounded-full bg-emerald-500" />

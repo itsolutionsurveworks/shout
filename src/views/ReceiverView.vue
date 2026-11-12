@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
 import { CheckCheck, Clock } from "lucide-vue-next";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
+import { onRefresh } from "../lib/refresh";
 import { dayLabel } from "../lib/thread";
 import BuildFooter from "../components/BuildFooter.vue";
 
@@ -57,6 +58,11 @@ const channel = supabase
     { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${props.me.id}` },
     () => load());
 
+// Refresh button: reload the shout history (KeepAlive: only while shown).
+let offRefresh: (() => void) | null = null;
+onActivated(() => { offRefresh = onRefresh(load); });
+onDeactivated(() => offRefresh?.());
+
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   channel.subscribe((s) => { if (s === "SUBSCRIBED") load(); });
@@ -64,6 +70,7 @@ onMounted(() => {
   window.addEventListener("focus", load);
 });
 onUnmounted(() => {
+  offRefresh?.();
   clearInterval(timer);
   window.removeEventListener("focus", load);
   supabase.removeChannel(channel);

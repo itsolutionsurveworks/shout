@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { Check, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-vue-next";
 import { supabase, type Profile, type QuickShout } from "../lib/supabase";
+import { onRefresh } from "../lib/refresh";
 
 const props = defineProps<{ me: Profile; disabled?: boolean }>();
 const emit = defineEmits<{ send: [text: string]; error: [message: string] }>();
@@ -76,7 +77,13 @@ async function remove(q: QuickShout) {
   items.value = items.value.filter((x) => x.id !== q.id);
 }
 
-onMounted(load);
+// Quick shouts are part of the dashboard, so the refresh button reloads them too.
+let offRefresh: (() => void) | null = null;
+onMounted(() => {
+  load();
+  offRefresh = onRefresh(load);
+});
+onUnmounted(() => offRefresh?.());
 </script>
 
 <template>
