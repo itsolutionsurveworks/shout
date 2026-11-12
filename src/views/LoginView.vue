@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import appIcon from "../../src-tauri/icons/128x128.png";
 import { supabase } from "../lib/supabase";
+import BuildFooter from "../components/BuildFooter.vue";
 
 const email = ref("");
 const password = ref("");
@@ -21,7 +22,7 @@ async function login() {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 items-center justify-center bg-white">
+  <div class="relative flex min-h-0 flex-1 items-center justify-center bg-white">
     <form class="w-[300px] space-y-3 p-6" @submit.prevent="login">
       <div class="flex flex-col items-center text-center">
         <img :src="appIcon" alt="Office Shout" class="mb-2 h-12 w-12" />
@@ -37,5 +38,6 @@ async function login() {
         {{ busy ? "Signing in…" : "Sign in" }}
       </button>
     </form>
+    <BuildFooter class="absolute inset-x-0 bottom-2 text-center" />
   </div>
 </template>
