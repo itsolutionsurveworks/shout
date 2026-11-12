@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, ref, watch } from "vue";
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
 import { ChevronDown, Plus, ScrollText, Search, UserRound, UsersRound } from "lucide-vue-next";
 import { supabase, type Profile, type Role } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
@@ -152,10 +152,42 @@ const title = computed(() => nav.value.find((n) => n.key === section.value)?.lab
 // Runs on first show and on every return to the tab (KeepAlive). Existing rows stay until new data arrives.
 // Re-capturing the member order happens here, not in load(), so toggling a member never reshuffles the list.
 onActivated(async () => {
+  active = true;
   await load();
   snapshotMemberOrder();
 });
+onDeactivated(() => { active = false; });
 watch(selectedGroupId, snapshotMemberOrder);
+
+// Live updates: any change to people, groups, memberships or shouts refetches the data
+// while this tab is visible. Refetch only; the frozen member order is left alone.
+let active = false;
+let pending: ReturnType<typeof setTimeout> | undefined;
+function refresh() {
+  if (!active) return;
+  clearTimeout(pending);
+  pending = setTimeout(load, 150); // coalesce bursts (e.g. "select all") into one fetch
+}
+const channel = supabase
+  .channel("admin-live")
+  .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, refresh)
+  .on("postgres_changes", { event: "*", schema: "public", table: "groups" }, refresh)
+  .on("postgres_changes", { event: "*", schema: "public", table: "group_members" }, refresh)
+  .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, refresh);
+
+// Safety net for dropped realtime events and for returning to the window.
+let timer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  channel.subscribe();
+  timer = setInterval(refresh, 30000);
+  window.addEventListener("focus", refresh);
+});
+onUnmounted(() => {
+  clearInterval(timer);
+  clearTimeout(pending);
+  window.removeEventListener("focus", refresh);
+  supabase.removeChannel(channel);
+});
 </script>
 
 <template>
