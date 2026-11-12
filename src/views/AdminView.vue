@@ -6,6 +6,7 @@ import { onlineIds } from "../lib/presence";
 import { chatTime } from "../lib/thread";
 import UserAvatar from "../components/UserAvatar.vue";
 import ScrollHint from "../components/ScrollHint.vue";
+import BuildFooter from "../components/BuildFooter.vue";
 
 const users = ref<Profile[]>([]);
 const groups = ref<{ id: string; name: string; members: string[] }[]>([]);
@@ -367,6 +368,9 @@ onUnmounted(() => {
           </ScrollHint>
         </template>
       </div>
+      <footer class="flex justify-end border-t border-slate-200 bg-white px-5 py-1.5">
+        <BuildFooter />
+      </footer>
     </section>
   </div>
 </template>
