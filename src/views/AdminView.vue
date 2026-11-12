@@ -1,14 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onActivated, ref, watch } from "vue";
+import { ChevronDown, Plus, ScrollText, Search, UserRound, UsersRound } from "lucide-vue-next";
 import { supabase, type Profile, type Role } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
+import { chatTime } from "../lib/thread";
 import UserAvatar from "../components/UserAvatar.vue";
+import ScrollHint from "../components/ScrollHint.vue";
 
 const users = ref<Profile[]>([]);
 const groups = ref<{ id: string; name: string; members: string[] }[]>([]);
 const logs = ref<any[]>([]);
 const newGroup = ref("");
 const err = ref("");
+const selectedGroupId = ref<string | null>(null);
+const memberQuery = ref("");
+
+// Same frame as the People tab: a list on the left, the selected section on the right.
+const section = ref<"users" | "groups" | "audit">("users");
+const query = ref("");
 
 async function load() {
   const [u, g, l] = await Promise.all([
@@ -25,12 +34,26 @@ async function load() {
     id: x.id, name: x.name, members: x.group_members.map((m: any) => m.user_id),
   }));
   logs.value = l.data ?? [];
+  if (!groups.value.some((g) => g.id === selectedGroupId.value)) {
+    selectedGroupId.value = groups.value[0]?.id ?? null;
+  }
 }
 
-async function updateUser(u: Profile, patch: Partial<{ role: Role; department: string }>) {
+async function updateUser(u: Profile, patch: Partial<{ full_name: string; role: Role; department: string }>) {
   const { error } = await supabase.from("profiles").update(patch).eq("id", u.id);
   err.value = error?.message ?? "";
   load();
+}
+
+// Admin renames a user; empty names are ignored and the field snaps back to the stored value.
+function renameUser(u: Profile, e: Event) {
+  const input = e.target as HTMLInputElement;
+  const name = input.value.trim();
+  if (!name || name === u.full_name) {
+    input.value = u.full_name;
+    return;
+  }
+  updateUser(u, { full_name: name });
 }
 
 async function addGroup() {
@@ -38,6 +61,17 @@ async function addGroup() {
   const { error } = await supabase.from("groups").insert({ name: newGroup.value.trim() });
   err.value = error?.message ?? "";
   newGroup.value = "";
+  load();
+}
+
+// Bulk add/remove in one request, used by "Select all" for the currently filtered people.
+async function setMembers(groupId: string, userIds: string[], add: boolean) {
+  if (!userIds.length) return;
+  const q = supabase.from("group_members");
+  const { error } = add
+    ? await q.insert(userIds.map((user_id) => ({ group_id: groupId, user_id })))
+    : await q.delete().eq("group_id", groupId).in("user_id", userIds);
+  err.value = error?.message ?? "";
   load();
 }
 
@@ -56,77 +90,251 @@ function latency(n: any) {
   return s < 60 ? `${s.toFixed(0)}s` : `${(s / 60).toFixed(1)}m`;
 }
 
-onMounted(load);
+// Same wording as the chat receipts: one tick, two grey ticks, two blue ticks ("Seen").
+const statusLabel = (s: string) => (s === "acknowledged" ? "Seen" : s === "delivered" ? "Delivered" : "Sent");
+const statusClass = (s: string) =>
+  s === "acknowledged" ? "bg-emerald-100 text-emerald-800" : s === "delivered" ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-500";
+
+const q = computed(() => query.value.trim().toLowerCase());
+const shownUsers = computed(() =>
+  users.value.filter((u) => !q.value || u.full_name.toLowerCase().includes(q.value) || u.email.toLowerCase().includes(q.value) || (u.department ?? "").toLowerCase().includes(q.value)));
+const shownGroups = computed(() => groups.value.filter((g) => !q.value || g.name.toLowerCase().includes(q.value)));
+const selectedGroup = computed(() => groups.value.find((g) => g.id === selectedGroupId.value) ?? null);
+const allShownSelected = computed(() => {
+  const g = selectedGroup.value;
+  return !!g && groupPeople.value.length > 0 && groupPeople.value.every((u) => g.members.includes(u.id));
+});
+// Acts only on the people currently visible after filtering.
+function toggleAllShown() {
+  const g = selectedGroup.value;
+  if (!g) return;
+  const ids = groupPeople.value.map((u) => u.id);
+  if (allShownSelected.value) setMembers(g.id, ids, false);
+  else setMembers(g.id, ids.filter((id) => !g.members.includes(id)), true);
+}
+// Members float to the top of the list, but the order is frozen while the list is in use.
+// It is re-captured only when the view is shown again or another group is picked.
+const memberOrder = ref<string[]>([]);
+function snapshotMemberOrder() {
+  const g = selectedGroup.value;
+  memberOrder.value = users.value
+    .slice()
+    .sort((a, b) => Number(g?.members.includes(b.id) ?? 0) - Number(g?.members.includes(a.id) ?? 0)
+      || a.full_name.localeCompare(b.full_name))
+    .map((u) => u.id);
+}
+const rank = (id: string) => {
+  const i = memberOrder.value.indexOf(id);
+  return i === -1 ? Infinity : i;
+};
+const groupPeople = computed(() => {
+  const mq = memberQuery.value.trim().toLowerCase();
+  return users.value
+    .filter((u) => !mq || u.full_name.toLowerCase().includes(mq) || (u.department ?? "").toLowerCase().includes(mq))
+    .slice()
+    .sort((a, b) => {
+      const ra = rank(a.id), rb = rank(b.id);
+      if (ra !== rb) return ra < rb ? -1 : 1;
+      return a.full_name.localeCompare(b.full_name);
+    });
+});
+const shownLogs = computed(() =>
+  logs.value.filter((n) => !q.value || (n.message ?? "").toLowerCase().includes(q.value)
+    || (n.sender?.full_name ?? "").toLowerCase().includes(q.value) || (n.recipient?.full_name ?? "").toLowerCase().includes(q.value)));
+
+const nav = computed(() => [
+  { key: "users" as const, label: "Users", icon: UserRound, count: users.value.length },
+  { key: "groups" as const, label: "Groups", icon: UsersRound, count: groups.value.length },
+  { key: "audit" as const, label: "Audit log", icon: ScrollText, count: null },
+]);
+const title = computed(() => nav.value.find((n) => n.key === section.value)?.label ?? "");
+
+// Runs on first show and on every return to the tab (KeepAlive). Existing rows stay until new data arrives.
+// Re-capturing the member order happens here, not in load(), so toggling a member never reshuffles the list.
+onActivated(async () => {
+  await load();
+  snapshotMemberOrder();
+});
+watch(selectedGroupId, snapshotMemberOrder);
 </script>
 
 <template>
-  <div class="h-[580px] w-[900px] space-y-6 overflow-auto bg-slate-50 p-5">
-    <p v-if="err" class="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{{ err }}</p>
-    <p class="text-sm text-slate-500">
-      New accounts are created in the Supabase dashboard (Auth → Users). Set
-      <code>full_name</code> and <code>department</code> in user metadata; a profile is created automatically.
-    </p>
-
-    <section class="rounded-xl bg-white p-5 shadow-sm">
-      <h2 class="mb-3 font-semibold">Users</h2>
-      <table class="w-full text-sm">
-        <thead><tr class="border-b border-slate-100 text-left text-slate-500"><th class="p-2">Name</th><th>Email</th><th>Department</th><th>Role</th><th>Status</th></tr></thead>
-        <tbody>
-          <tr v-for="u in users" :key="u.id" class="border-b border-slate-100">
-            <td class="p-2 font-medium"><span class="flex items-center gap-2"><UserAvatar :user="u" size-class="h-7 w-7" />{{ u.full_name }}</span></td>
-            <td class="text-slate-500">{{ u.email }}</td>
-            <td><input :value="u.department" class="rounded border border-slate-200 px-2 py-1"
-              @change="updateUser(u, { department: ($event.target as HTMLInputElement).value })" /></td>
-            <td>
-              <select :value="u.role" class="rounded border border-slate-200 px-2 py-1"
-                @change="updateUser(u, { role: ($event.target as HTMLSelectElement).value as Role })">
-                <option>admin</option><option>sender</option><option>receiver</option>
-              </select>
-            </td>
-            <td>
-              <span class="flex items-center gap-1.5">
-                <span class="h-2 w-2 rounded-full" :class="onlineIds.has(u.id) ? 'bg-green-500' : 'bg-slate-300'" />
-                {{ onlineIds.has(u.id) ? "Online" : "Offline" }}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <section>
-      <h2 class="mb-2 font-semibold">Groups</h2>
-      <form class="mb-3 flex gap-2" @submit.prevent="addGroup">
-        <input v-model="newGroup" placeholder="New group (e.g. Floor 2)" class="rounded border px-3 py-1" />
-        <button class="rounded bg-blue-600 px-3 text-white">Add</button>
-      </form>
-      <details v-for="g in groups" :key="g.id" class="mb-2 rounded border bg-white p-2">
-        <summary class="cursor-pointer">{{ g.name }} ({{ g.members.length }})</summary>
-        <div class="mt-2 grid grid-cols-3 gap-1 text-sm">
-          <label v-for="u in users" :key="u.id" class="flex items-center gap-2">
-            <input type="checkbox" :checked="g.members.includes(u.id)"
-              @change="toggleMember(g.id, u.id, g.members.includes(u.id))" />
-            {{ u.full_name }}
-          </label>
+  <div class="flex min-h-0 min-w-0 flex-1">
+    <!-- Left list, narrower than the chat list -->
+    <aside class="flex w-[22%] min-w-[160px] max-w-[220px] shrink-0 flex-col border-r border-slate-200 bg-white">
+      <div class="px-3 pb-3 pt-4">
+        <p class="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Admin</p>
+        <div class="relative">
+          <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <input v-model="query" :placeholder="`Search ${title.toLowerCase()}`"
+            class="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
         </div>
-      </details>
-    </section>
+      </div>
+      <nav class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto px-2 py-1.5">
+        <button v-for="n in nav" :key="n.key"
+          class="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors"
+          :class="section === n.key
+            ? 'bg-white font-semibold text-emerald-800 shadow-sm ring-1 ring-slate-200'
+            : 'font-medium text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'"
+          @click="section = n.key">
+          <component :is="n.icon" class="h-4 w-4 shrink-0"
+            :class="section === n.key ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'" />
+          <span class="min-w-0 flex-1 truncate">{{ n.label }}</span>
+          <span v-if="n.count != null"
+            class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+            :class="section === n.key ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'">{{ n.count }}</span>
+        </button>
+      </nav>
+    </aside>
 
-    <section>
-      <h2 class="mb-2 font-semibold">Audit log</h2>
-      <table class="w-full bg-white text-sm">
-        <thead><tr class="border-b text-left"><th class="p-2">Time</th><th>From</th><th>To</th><th>Message</th><th>Status</th><th>Ack latency</th></tr></thead>
-        <tbody>
-          <tr v-for="n in logs" :key="n.id" class="border-b">
-            <td class="p-2">{{ new Date(n.created_at).toLocaleString() }}</td>
-            <td>{{ n.sender?.full_name }}</td>
-            <td>{{ n.recipient?.full_name }}</td>
-            <td>{{ n.message }}</td>
-            <td>{{ n.status }}</td>
-            <td>{{ latency(n) }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- Right content: header bar and body mirror the chat thread -->
+    <section class="flex min-w-0 flex-1 flex-col bg-slate-50">
+      <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">
+        <p v-if="err" class="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{{ err }}</p>
+
+        <!-- Users -->
+        <template v-if="section === 'users'">
+          <ScrollHint>
+            <table class="w-full table-fixed text-sm">
+              <thead class="sticky top-0 z-10 bg-white">
+                <tr class="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                  <th class="w-[42%] px-4 py-2.5 font-medium">User</th>
+                  <th class="w-[20%] px-2 py-2.5 font-medium">Department</th>
+                  <th class="w-[20%] px-2 py-2.5 font-medium">Role</th>
+                  <th class="w-[18%] px-4 py-2.5 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="u in shownUsers" :key="u.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                  <td class="px-4 py-2.5">
+                    <span class="flex items-center gap-2.5">
+                      <UserAvatar :user="u" size-class="h-8 w-8" />
+                      <span class="min-w-0 flex-1">
+                        <input :value="u.full_name" title="Edit name" aria-label="Edit name"
+                          class="-mx-1 block w-[calc(100%+0.5rem)] truncate rounded px-1 py-0.5 font-medium text-slate-900 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          @change="renameUser(u, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()" />
+                        <span class="block truncate px-1 text-xs text-slate-500">{{ u.email }}</span>
+                      </span>
+                    </span>
+                  </td>
+                  <td class="px-2 py-2.5">
+                    <input :value="u.department" class="w-full rounded-lg bg-slate-100 px-2.5 py-1.5 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      @change="updateUser(u, { department: ($event.target as HTMLInputElement).value })" />
+                  </td>
+                  <td class="px-2 py-2.5">
+                    <div class="relative">
+                      <select :value="u.role" class="w-full appearance-none rounded-lg bg-slate-100 py-1.5 pl-2.5 pr-9 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        @change="updateUser(u, { role: ($event.target as HTMLSelectElement).value as Role })">
+                        <option>admin</option><option>sender</option><option>receiver</option>
+                      </select>
+                      <ChevronDown class="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                    </div>
+                  </td>
+                  <td class="px-4 py-2.5">
+                    <span class="flex items-center gap-1.5 text-xs" :class="onlineIds.has(u.id) ? 'text-emerald-700' : 'text-slate-500'">
+                      <span class="h-2 w-2 rounded-full" :class="onlineIds.has(u.id) ? 'bg-emerald-500' : 'bg-slate-300'" />
+                      {{ onlineIds.has(u.id) ? "Online" : "Offline" }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="!shownUsers.length" class="p-6 text-center text-sm text-slate-400">No people found</p>
+          </ScrollHint>
+        </template>
+
+        <!-- Groups -->
+        <template v-if="section === 'groups'">
+          <div class="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <!-- Pick a group, create new ones at the top -->
+            <div class="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
+              <form class="flex shrink-0 gap-2 px-3 pb-3 pt-4" @submit.prevent="addGroup">
+                <input v-model="newGroup" placeholder="New group name" maxlength="12"
+                  class="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                <button :disabled="!newGroup.trim()" title="Create group" aria-label="Create group"
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:opacity-40">
+                  <Plus class="h-4 w-4" />
+                </button>
+              </form>
+              <div class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto px-2 py-1.5">
+                <button v-for="g in shownGroups" :key="g.id"
+                  class="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors"
+                  :class="g.id === selectedGroupId
+                    ? 'bg-white font-semibold text-emerald-800 shadow-sm ring-1 ring-slate-200'
+                    : 'font-medium text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'"
+                  @click="selectedGroupId = g.id">
+                  <span class="min-w-0 flex-1 truncate" :title="g.name">{{ g.name }}</span>
+                  <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+                    :class="g.id === selectedGroupId ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'">{{ g.members.length }}</span>
+                </button>
+                <p v-if="!shownGroups.length" class="p-6 text-center text-sm text-slate-400">No groups yet</p>
+              </div>
+            </div>
+
+            <!-- Manage the selected group's members -->
+            <div v-if="selectedGroup" class="flex min-w-0 flex-1 flex-col">
+              <div class="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
+                <h3 class="min-w-0 truncate font-medium" :title="selectedGroup.name">{{ selectedGroup.name }}</h3>
+                <input v-model="memberQuery" placeholder="Filter people"
+                  class="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                <label v-if="groupPeople.length" class="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-slate-600">
+                  <input type="checkbox" class="h-4 w-4 accent-emerald-600" :checked="allShownSelected" @change="toggleAllShown" />
+                  All
+                </label>
+              </div>
+              <div class="min-h-0 flex-1 overflow-auto">
+                <label v-for="u in groupPeople" :key="u.id"
+                  class="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-2 last:border-0 hover:bg-slate-50">
+                  <UserAvatar :user="u" size-class="h-8 w-8" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-medium text-slate-900">{{ u.full_name }}</span>
+                    <span class="block truncate text-xs text-slate-500">{{ u.department || u.email }}</span>
+                  </span>
+                  <input type="checkbox" class="h-4 w-4 shrink-0 accent-emerald-600"
+                    :checked="selectedGroup.members.includes(u.id)"
+                    @change="toggleMember(selectedGroup.id, u.id, selectedGroup.members.includes(u.id))" />
+                </label>
+                <p v-if="!groupPeople.length" class="p-6 text-center text-sm text-slate-400">No people found</p>
+              </div>
+            </div>
+            <div v-else class="flex flex-1 items-center justify-center text-sm text-slate-400">
+              {{ groups.length ? "Select a group" : "Create a group to add people to it" }}
+            </div>
+          </div>
+        </template>
+
+        <!-- Audit log -->
+        <template v-if="section === 'audit'">
+          <ScrollHint>
+            <table class="w-full table-fixed text-xs">
+              <thead class="sticky top-0 z-10 bg-white">
+                <tr class="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <th class="w-[15%] px-2 py-2.5 font-medium">Time</th>
+                  <th class="w-[17%] px-2 py-2.5 font-medium">From / To</th>
+                  <th class="w-[39%] px-2 py-2.5 font-medium">Message</th>
+                  <th class="w-[14%] px-2 py-2.5 font-medium">Status</th>
+                  <th class="w-[15%] px-2 py-2.5 font-medium">Latency</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="n in shownLogs" :key="n.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                  <td class="truncate px-2 py-2.5 text-[10px] text-slate-500">{{ chatTime(n.created_at) }}</td>
+                  <td class="px-2 py-2.5 text-xs">
+                    <span class="block truncate font-medium text-slate-900" :title="n.sender?.full_name">{{ n.sender?.full_name }}</span>
+                    <span class="block truncate text-slate-500" :title="n.recipient?.full_name">→ {{ n.recipient?.full_name }}</span>
+                  </td>
+                  <td class="truncate px-2 py-2.5 text-slate-700" :title="n.message">{{ n.message }}</td>
+                  <td class="px-2 py-2.5">
+                    <span class="inline-block max-w-full truncate whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="statusClass(n.status)">{{ statusLabel(n.status) }}</span>
+                  </td>
+                  <td class="truncate px-2 py-2.5 text-xs text-slate-500">{{ latency(n) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="!shownLogs.length" class="p-6 text-center text-sm text-slate-400">No shouts found</p>
+          </ScrollHint>
+        </template>
+      </div>
     </section>
   </div>
 </template>

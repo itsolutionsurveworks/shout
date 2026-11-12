@@ -115,7 +115,7 @@ async function removePhoto() {
 
       <div class="flex flex-col items-center text-center">
         <UserAvatar :user="me" size-class="h-28 w-28" />
-        <p class="mt-3 text-base font-semibold">{{ me.full_name }}</p>
+        <p class="mt-3 text-sm font-semibold">{{ me.full_name }}</p>
         <p class="text-sm text-slate-500">{{ me.department }} · {{ me.role }}</p>
         <p class="mt-1 text-xs text-slate-400">Your name is set by an administrator.</p>
       </div>

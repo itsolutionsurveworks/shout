@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 export type Role = "admin" | "sender" | "receiver";
-export type NotifStatus = "sent" | "delivered" | "acknowledged" | "on_my_way";
+export type NotifStatus = "sent" | "delivered" | "acknowledged";
 
 export interface Profile {
   id: string;
@@ -26,6 +26,8 @@ export interface Notification {
   recipient_id: string;
   message: string;
   status: NotifStatus;
+  batch_id: string | null;
+  group_id: string | null;
   created_at: string;
   delivered_at: string | null;
   acknowledged_at: string | null;

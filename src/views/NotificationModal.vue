@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { supabase, type Notification, type NotifStatus, type Profile } from "../lib/supabase";
+import { supabase, type Notification, type Profile } from "../lib/supabase";
 import UserAvatar from "../components/UserAvatar.vue";
 
 const props = defineProps<{ me: Profile }>();
 
 const queue = ref<{ n: Notification; sender: Profile | null }[]>([]);
 const now = ref(Date.now());
+const replyError = ref("");
 // getCurrentWindow() only works inside the Tauri desktop app. In a plain browser
 // (npm run dev) it's null and the window calls are skipped, so the modal still works.
 const win = "__TAURI_INTERNALS__" in window ? getCurrentWindow() : null;
@@ -27,10 +28,18 @@ async function enqueue(n: Notification) {
   new Audio("/chime.mp3").play().catch(() => {});
 }
 
-async function respond(status: NotifStatus) {
-  const item = queue.value.shift();
+async function acknowledge() {
+  const item = queue.value[0];
   if (!item) return;
-  await supabase.from("notifications").update({ status }).eq("id", item.n.id);
+  const { error } = await supabase.from("notifications").update({ status: "acknowledged" }).eq("id", item.n.id);
+  if (error) {
+    // Keep the shout on screen so the user can retry instead of silently losing the reply.
+    console.error("Reply failed", error);
+    replyError.value = `Couldn't send reply: ${error.message}`;
+    return;
+  }
+  replyError.value = "";
+  queue.value.shift();
   if (queue.value.length === 0 && win) {
     await win.setAlwaysOnTop(false);
     await win.hide(); // back to the system tray
@@ -76,49 +85,44 @@ onUnmounted(() => {
 
 <template>
   <!-- Fills the alert window (no dimming overlay of the main app). -->
-  <div v-if="current" class="flex h-screen w-screen flex-col overflow-hidden bg-white font-sans">
-    <!-- Header band -->
-    <div class="relative flex h-24 shrink-0 items-start justify-between bg-gradient-to-br from-blue-600 to-indigo-600 px-5 pt-4 text-white">
-      <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100">Incoming shout</span>
-      <span class="flex items-center gap-2 text-[11px] text-blue-100">
+  <div v-if="current" class="flex h-screen w-screen flex-col overflow-hidden bg-[#efeae2] font-sans text-slate-900">
+    <!-- Header: same bar style as the chat header, emerald for an incoming alert -->
+    <header class="flex shrink-0 items-center justify-between bg-emerald-600 px-4 py-2.5 text-white">
+      <span class="text-xs font-semibold uppercase tracking-wider">Incoming shout</span>
+      <span class="flex items-center gap-2 text-[11px] text-emerald-100">
         <span v-if="queue.length > 1" class="rounded-full bg-white/20 px-2 py-0.5 font-semibold text-white">
           1 of {{ queue.length }}
         </span>
         {{ ago(current.n.created_at) }}
       </span>
-    </div>
+    </header>
 
     <!-- Sender -->
-    <div class="-mt-10 flex flex-col items-center px-6 text-center">
-      <div class="rounded-full bg-white p-1 shadow-md">
-        <UserAvatar :user="current.sender ?? {}" size-class="h-16 w-16" />
+    <div class="flex shrink-0 items-center gap-3 bg-slate-100 px-4 py-3">
+      <UserAvatar :user="current.sender ?? {}" size-class="h-11 w-11" />
+      <div class="min-w-0">
+        <h2 class="truncate font-medium leading-tight">{{ current.sender?.full_name ?? "Someone" }}</h2>
+        <p class="truncate text-xs text-slate-500">{{ current.sender?.department }}</p>
       </div>
-      <h2 class="mt-2 text-lg font-semibold leading-tight text-slate-900">
-        {{ current.sender?.full_name ?? "Someone" }}
-      </h2>
-      <p class="text-xs text-slate-500">{{ current.sender?.department }}</p>
     </div>
 
-    <!-- Message -->
-    <div class="flex min-h-0 flex-1 items-center justify-center px-6 py-3">
-      <div class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-        <p class="line-clamp-4 break-words text-center text-xl font-semibold leading-snug text-slate-900">
+    <!-- Message: an incoming bubble on the chat wallpaper -->
+    <div class="flex min-h-0 flex-1 items-center px-4 py-3">
+      <div class="relative w-full rounded-lg rounded-tl-none bg-white px-5 py-4 shadow-sm">
+        <p class="line-clamp-4 whitespace-pre-wrap break-words text-lg font-medium leading-snug text-slate-900">
           {{ current.n.message }}
         </p>
       </div>
     </div>
 
     <!-- Actions -->
-    <div class="px-6 pb-5">
-      <p v-if="queue.length > 1" class="mb-2 text-center text-[11px] text-slate-400">
+    <div class="shrink-0 space-y-2 bg-slate-100 px-4 py-3">
+      <p v-if="queue.length > 1" class="text-center text-[11px] text-slate-500">
         {{ queue.length - 1 }} more waiting
       </p>
-      <div class="grid grid-cols-2 gap-3">
-        <button class="rounded-xl bg-green-600 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-green-700 active:scale-[0.98]"
-          @click="respond('acknowledged')">Acknowledged</button>
-        <button class="rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98]"
-          @click="respond('on_my_way')">On My Way</button>
-      </div>
+      <p v-if="replyError" class="text-center text-xs text-red-600">{{ replyError }}</p>
+      <button class="w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
+        @click="acknowledge">Acknowledged</button>
     </div>
   </div>
 </template>

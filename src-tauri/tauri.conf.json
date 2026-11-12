@@ -17,7 +17,8 @@
         "width": 440,
         "height": 360,
         "visible": true,
-        "center": true
+        "center": true,
+        "resizable": false
       },
       {
         "label": "alert",

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import appIcon from "../../src-tauri/icons/128x128.png";
 import { supabase } from "../lib/supabase";
 
 const email = ref("");
@@ -20,18 +21,19 @@ async function login() {
 </script>
 
 <template>
-  <div class="w-[400px] bg-white">
-    <form class="space-y-4 p-8" @submit.prevent="login">
-      <div class="text-center">
-        <p class="mt-1 text-sm text-slate-500">Sign in to continue</p>
+  <div class="flex min-h-0 flex-1 items-center justify-center bg-white">
+    <form class="w-[300px] space-y-3 p-6" @submit.prevent="login">
+      <div class="flex flex-col items-center text-center">
+        <img :src="appIcon" alt="Office Shout" class="mb-2 h-12 w-12" />
+        <h1 class="text-lg font-semibold leading-tight">Sign In to Shout</h1>
       </div>
       <input v-model="email" type="email" placeholder="Email" required
-        class="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-blue-400 focus:outline-none" />
+        class="w-full rounded-lg bg-slate-100 px-3 py-2.5 text-sm placeholder:text-slate-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500" />
       <input v-model="password" type="password" placeholder="Password" required
-        class="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-blue-400 focus:outline-none" />
-      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        class="w-full rounded-lg bg-slate-100 px-3 py-2.5 text-sm placeholder:text-slate-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+      <p v-if="error" class="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{{ error }}</p>
       <button :disabled="busy"
-        class="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+        class="w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50">
         {{ busy ? "Signing in…" : "Sign in" }}
       </button>
     </form>

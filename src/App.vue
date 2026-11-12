@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { supabase, type Profile } from "./lib/supabase";
-import { startPresence, stopPresence, onlineIds } from "./lib/presence";
+import { startPresence, stopPresence } from "./lib/presence";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
+import ReceiverView from "./views/ReceiverView.vue";
 import AdminView from "./views/AdminView.vue";
 import NotificationModal from "./views/NotificationModal.vue";
 import ProfileModal from "./views/ProfileModal.vue";
 import UserAvatar from "./components/UserAvatar.vue";
+import { ChevronDown, LogOut, UserRoundPen } from "lucide-vue-next";
 
 // The "alert" window is a small frameless popup that shows only the shout modal.
 // It runs this same app, so it renders just NotificationModal instead of the dashboard.
@@ -19,6 +21,7 @@ const me = ref<Profile | null>(null);
 const loading = ref(true);
 const tab = ref<"people" | "admin">("people");
 const showProfile = ref(false);
+const menuOpen = ref(false);
 
 async function loadProfile(userId: string | null) {
   if (!userId) {
@@ -32,36 +35,53 @@ async function loadProfile(userId: string | null) {
   if (me.value && !isAlertWindow) startPresence(me.value);
 }
 
-// The window is exactly the size of the current view's card: each view has a fixed
-// size, so the shell hugs its content and we copy that size onto the window.
-const shell = ref<HTMLElement | null>(null);
+// The window opens at a sensible default size for each view, but the user can resize it.
+// Views fill whatever size the window has. We only apply the default when the view
+// changes, so a manual resize is not overwritten.
+// People and Admin share one frame, so switching tabs never resizes the window.
+const DEFAULT_CONTENT: Record<"login" | "main" | "receiver", [number, number]> = {
+  login: [400, 340],
+  main: [800, 560],
+  receiver: [400, 560],
+};
+const MIN_WIDTH = 360;
+const MIN_HEIGHT = 300;
+
+const viewKey = computed<keyof typeof DEFAULT_CONTENT>(() => {
+  if (!me.value) return "login";
+  return me.value.role === "receiver" ? "receiver" : "main";
+});
+const header = ref<HTMLElement | null>(null);
+const loginView = ref<{ $el: HTMLElement } | null>(null);
 let lastView = "";
-let resizeObserver: ResizeObserver | null = null;
 
 async function fitWindow() {
-  if (isAlertWindow || !shell.value || !("__TAURI_INTERNALS__" in window)) return;
-  const { width, height } = shell.value.getBoundingClientRect();
-  const win = getCurrentWindow();
-  await win.setSize(new LogicalSize(Math.ceil(width), Math.ceil(height)));
-  // Re-center only when the view changes, not on every content resize.
-  const view = !me.value ? "login" : `${me.value.role}:${tab.value}`;
-  if (view !== lastView) {
-    lastView = view;
-    await win.center();
+  if (isAlertWindow || !("__TAURI_INTERNALS__" in window)) return;
+  const view = viewKey.value;
+  if (view === lastView) return;
+  lastView = view;
+  let [width, contentHeight] = DEFAULT_CONTENT[view];
+  if (view === "login" && loginView.value) {
+    // The login window is exactly the sign-in form (no outer padding or card).
+    const form = (loginView.value.$el as HTMLElement).firstElementChild as HTMLElement | null;
+    if (form) {
+      width = form.offsetWidth;
+      contentHeight = form.offsetHeight;
+    }
   }
+  const headerHeight = header.value?.offsetHeight ?? 0;
+  const win = getCurrentWindow();
+  await win.setSize(new LogicalSize(width, contentHeight + headerHeight));
+  await win.center();
 }
 
-watch(shell, (el) => {
-  resizeObserver?.disconnect();
-  if (el) {
-    resizeObserver ??= new ResizeObserver(() => fitWindow());
-    resizeObserver.observe(el);
-  }
-});
-watch([me, tab, loading], () => nextTick(fitWindow));
+watch([viewKey, loading], () => nextTick(fitWindow));
 
 let sub: { unsubscribe(): void } | null = null;
 onMounted(async () => {
+  if ("__TAURI_INTERNALS__" in window && !isAlertWindow) {
+    await getCurrentWindow().setMinSize(new LogicalSize(MIN_WIDTH, MIN_HEIGHT));
+  }
   const { data } = await supabase.auth.getSession();
   await loadProfile(data.session?.user.id ?? null);
   loading.value = false;
@@ -73,7 +93,6 @@ onMounted(async () => {
 onUnmounted(() => {
   sub?.unsubscribe();
   stopPresence();
-  resizeObserver?.disconnect();
 });
 
 function onAvatarSaved(url: string | null) {
@@ -102,47 +121,59 @@ async function logout() {
 <template>
   <NotificationModal v-if="isAlertWindow && me" :me="me" />
   <div v-else-if="isAlertWindow" />
-  <div v-else ref="shell" class="block w-max bg-slate-50 text-slate-900">
-  <div v-if="loading" class="flex h-[300px] w-[400px] items-center justify-center text-slate-400">Loading…</div>
-  <LoginView v-else-if="!me" />
-  <div v-else class="flex flex-col">
-    <header class="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
-      <div class="flex items-center gap-6">
-        <nav v-if="me.role !== 'receiver'" class="flex gap-1 text-sm">
-          <button class="rounded-md px-3 py-1.5 font-medium"
-            :class="tab === 'people' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'"
+  <div v-else class="flex h-screen w-screen flex-col overflow-hidden bg-slate-50 text-slate-900">
+  <div v-if="loading" class="flex flex-1 items-center justify-center text-slate-400">Loading…</div>
+  <LoginView v-else-if="!me" ref="loginView" />
+  <div v-else class="flex min-h-0 flex-1 flex-col">
+    <!-- Browser-style tab strip: the active tab rises into the white toolbar below it -->
+    <header ref="header" class="flex shrink-0 items-end justify-between bg-slate-200 pr-3 pt-2">
+      <div class="flex items-end self-stretch">
+        <span v-if="me.role !== 'admin'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ me.role }}</span>
+        <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
+        <nav v-if="me.role !== 'receiver'" class="flex items-end text-sm w-[22%] min-w-[160px] max-w-[220px]">
+          <button class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
+            :class="tab === 'people' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
             @click="tab = 'people'">People</button>
-          <button v-if="me.role === 'admin'" class="rounded-md px-3 py-1.5 font-medium"
-            :class="tab === 'admin' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'"
+          <button v-if="me.role === 'admin'" class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
+            :class="tab === 'admin' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
             @click="tab = 'admin'">Admin</button>
         </nav>
       </div>
-      <div class="flex items-center gap-4 text-sm">
-        <button class="flex items-center gap-2 rounded-md px-1 py-0.5 hover:bg-slate-100" title="Edit profile"
-          @click="showProfile = true">
-          <span class="h-2.5 w-2.5 rounded-full bg-green-500" />
+      <div class="relative mb-1.5 flex items-center text-sm">
+        <button class="flex items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-slate-100" title="Account menu"
+          aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
+          <span class="h-2.5 w-2.5 rounded-full bg-emerald-500" />
           <UserAvatar :user="me" size-class="h-7 w-7" />
-          <span class="font-medium">{{ me.full_name }}</span>
-          <span class="text-slate-400">· {{ me.role }}</span>
+          <span class="flex flex-col items-start leading-tight">
+            <span class="font-medium">{{ me.full_name }}</span>
+            <span v-if="me.role === 'admin'" class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{{ me.role }}</span>
+          </span>
+          <ChevronDown class="h-4 w-4 text-slate-400" />
         </button>
-        <button class="text-slate-500 hover:text-slate-900" @click="logout">Sign out</button>
+        <div v-if="menuOpen" class="fixed inset-0 z-10" @click="menuOpen = false" />
+        <div v-if="menuOpen" role="menu"
+          class="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          <button role="menuitem" class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100"
+            @click="menuOpen = false; showProfile = true">
+            <UserRoundPen class="h-4 w-4 text-slate-500" /> Edit profile
+          </button>
+          <div class="my-1 border-t border-slate-100" />
+          <button role="menuitem" class="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+            @click="menuOpen = false; logout()">
+            <LogOut class="h-4 w-4" /> Sign out
+          </button>
+        </div>
       </div>
     </header>
 
-    <main class="flex">
-      <!-- Receivers have nothing to do here: alerts arrive in their popup window. -->
-      <div v-if="me.role === 'receiver'" class="w-[400px] bg-white p-8 text-center">
-        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
-          <span class="h-3 w-3 rounded-full bg-green-500" />
-        </div>
-        <h2 class="text-lg font-semibold">You're online</h2>
-        <p class="mt-2 text-sm text-slate-500">
-          You're all set! You can close this window, and you'll get a notification when someone needs you.
-        </p>
-        <p class="mt-4 text-xs text-slate-400">{{ onlineIds.size }} people online</p>
-      </div>
-      <SenderView v-else-if="tab === 'people'" :me="me" />
-      <AdminView v-else-if="me.role === 'admin' && tab === 'admin'" />
+    <main class="flex min-h-0 flex-1">
+      <!-- Receivers see their shout history here; new shouts still arrive in their popup window. -->
+      <!-- KeepAlive: switching tabs reuses the mounted view and its data instead of re-fetching into an empty state -->
+      <KeepAlive>
+        <ReceiverView v-if="me.role === 'receiver'" :me="me" />
+        <SenderView v-else-if="tab === 'people'" :me="me" />
+        <AdminView v-else-if="me.role === 'admin' && tab === 'admin'" />
+      </KeepAlive>
     </main>
     <ProfileModal v-if="showProfile" :me="me" @close="showProfile = false"
       @saved="onAvatarSaved" />

@@ -1,0 +1,131 @@
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from "vue";
+import { Send, Users } from "lucide-vue-next";
+import type { Notification, Profile } from "../lib/supabase";
+import { dayLabel, type AckSummary, type ChatGroup, type ChatMessage } from "../lib/thread";
+import { replyLabel } from "../lib/receipts";
+import ReplyBubble from "./ReplyBubble.vue";
+import UserAvatar from "./UserAvatar.vue";
+import MessageBubble from "./MessageBubble.vue";
+import MessageInfo from "./MessageInfo.vue";
+import QuickShouts from "./QuickShouts.vue";
+
+const props = defineProps<{
+  me: Profile;
+  user: Profile | null;
+  group: ChatGroup | null;
+  people: Profile[];
+  online: Set<string>;
+  messages: ChatMessage[];
+  canSend: boolean;
+}>();
+const emit = defineEmits<{ send: [text: string]; error: [m: string] }>();
+
+const draft = ref("");
+const infoKey = ref<string | null>(null);
+const scroller = ref<HTMLElement | null>(null);
+const infoMsg = computed(() => props.messages.find((m) => m.key === infoKey.value) ?? null);
+
+const memberOnline = computed(() => props.group?.members.filter((m) => props.online.has(m)).length ?? 0);
+const subtitle = computed(() =>
+  props.user
+    ? props.online.has(props.user.id) ? "online" : "offline · shouts reach online people only"
+    : `${memberOnline.value} of ${props.group?.members.length ?? 0} online`);
+
+// Timeline: my messages plus each recipient's reply, ordered by time, with a date
+// separator whenever the day changes.
+type Entry = { id: string; at: string; m?: ChatMessage; reply?: Notification };
+const items = computed(() => {
+  const entries: Entry[] = [];
+  for (const m of props.messages) {
+    entries.push({ id: m.key, at: m.created_at, m });
+    for (const r of m.rows) {
+      if (replyLabel(r.status)) entries.push({ id: `r-${r.id}`, at: r.acknowledged_at ?? r.delivered_at ?? r.created_at, reply: r });
+    }
+  }
+  entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  let last = "";
+  return entries.map((e) => {
+    const day = new Date(e.at).toDateString();
+    const sep = day !== last ? dayLabel(e.at) : null;
+    last = day;
+    return { e, sep };
+  });
+});
+const nameOf = (id: string) => props.people.find((p) => p.id === id)?.full_name ?? "Someone";
+
+// Group shouts only: acknowledgements out of all members. Members who were offline when it
+// went out have no row, so they count as pending.
+function ackFor(m: ChatMessage): AckSummary | undefined {
+  if (!m.group_id || !props.group) return undefined;
+  const acked = new Set(m.rows.filter((r) => r.status === "acknowledged").map((r) => r.recipient_id));
+  const members = props.group.members;
+  return {
+    done: members.filter((id) => acked.has(id)).length,
+    total: members.length,
+    pending: members.filter((id) => !acked.has(id)).map((id) => nameOf(id)),
+  };
+}
+
+function submit() {
+  if (!draft.value.trim() || !props.canSend) return;
+  emit("send", draft.value);
+  draft.value = "";
+}
+
+function toBottom() {
+  nextTick(() => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight; });
+}
+// Follow the whole timeline, not just my messages: new sends, incoming replies and the
+// initial history load all change the entry count, so the latest item stays in view.
+watch(() => items.value.length, toBottom);
+watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toBottom(); }, { immediate: true });
+</script>
+
+<template>
+  <div class="relative flex min-h-0 flex-1 flex-col">
+    <header class="flex items-center gap-3 bg-slate-100 px-4 py-2.5">
+      <UserAvatar v-if="user" :user="user" size-class="h-10 w-10" />
+      <span v-else class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Users class="h-5 w-5" /></span>
+      <div class="min-w-0">
+        <h2 class="truncate font-medium leading-tight">{{ user?.full_name ?? group?.name }}</h2>
+        <p class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
+      </div>
+    </header>
+
+    <!-- Chat wallpaper -->
+    <div ref="scroller" class="min-h-0 flex-1 space-y-1.5 overflow-auto bg-slate-50 px-4 py-3">
+      <p v-if="!items.length" class="mx-auto mt-8 w-fit rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-slate-600 shadow-sm">
+        No shouts yet. Tap a quick shout below to send it.
+      </p>
+      <template v-for="{ e, sep } in items" :key="e.id">
+        <div v-if="sep" class="flex justify-center py-1">
+          <span class="rounded-lg bg-white/90 px-3 py-1 text-[11px] font-medium uppercase text-slate-500 shadow-sm">{{ sep }}</span>
+        </div>
+        <MessageBubble v-if="e.m" :msg="e.m" :ack="ackFor(e.m)" @info="infoKey = e.m.key" />
+        <ReplyBubble v-else-if="e.reply" :row="e.reply" :name="nameOf(e.reply.recipient_id)" :show-name="!!group" />
+      </template>
+    </div>
+
+    <!-- Quick shouts are the main way to message: always visible, one tap to send. -->
+    <div v-if="canSend" class="bg-slate-50 px-3 py-2.5">
+      <QuickShouts :me="me" @send="(t) => emit('send', t)" @error="(m) => emit('error', m)" />
+    </div>
+    <div v-else class="bg-slate-50 px-4 py-3 text-center text-xs text-slate-600">
+      Nobody here is online right now, so shouts can't be sent.
+    </div>
+
+    <!-- Custom message is secondary: tucked behind a toggle. -->
+    <!-- Custom message is always visible, next to the quick shouts. -->
+    <form v-if="canSend" class="flex items-center gap-2 bg-slate-100 px-3 py-2" @submit.prevent="submit">
+      <input v-model="draft" maxlength="500" :disabled="!canSend" placeholder="Type a custom message"
+        class="flex-1 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none disabled:bg-slate-50" />
+      <button :disabled="!draft.trim() || !canSend"
+        class="rounded-full bg-emerald-600 p-2.5 text-white hover:bg-emerald-700 disabled:opacity-40" title="Send">
+        <Send class="h-4 w-4" />
+      </button>
+    </form>
+
+    <MessageInfo v-if="infoMsg" :msg="infoMsg" :people="people" :group-members="group?.members" @close="infoKey = null" />
+  </div>
+</template>
