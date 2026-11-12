@@ -93,6 +93,8 @@ CREATE TRIGGER profiles_guard BEFORE UPDATE ON profiles
   FOR EACH ROW EXECUTE FUNCTION guard_profile_update();
 
 ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+-- Admin dashboard and pickers listen to these so edits show up without re-signing in.
+ALTER PUBLICATION supabase_realtime ADD TABLE profiles, groups, group_members;
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
