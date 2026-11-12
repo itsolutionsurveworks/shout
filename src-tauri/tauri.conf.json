@@ -14,10 +14,23 @@
       {
         "label": "main",
         "title": "Office Shout",
-        "width": 900,
-        "height": 650,
+        "width": 440,
+        "height": 360,
         "visible": true,
         "center": true
+      },
+      {
+        "label": "alert",
+        "title": "Incoming Shout",
+        "width": 460,
+        "height": 360,
+        "visible": false,
+        "center": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "focus": false
       }
     ],
     "security": { "csp": null }

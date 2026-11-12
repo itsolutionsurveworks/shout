@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 export type Role = "admin" | "sender" | "receiver";
-export type NotifStatus = "sent" | "delivered" | "acknowledged";
+export type NotifStatus = "sent" | "delivered" | "acknowledged" | "on_my_way";
 
 export interface Profile {
   id: string;
@@ -11,6 +11,13 @@ export interface Profile {
   role: Role;
   avatar_url: string | null;
   is_online: boolean;
+}
+
+export interface QuickShout {
+  id: string;
+  owner_id: string;
+  text: string;
+  created_at: string;
 }
 
 export interface Notification {

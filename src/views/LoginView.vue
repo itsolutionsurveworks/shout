@@ -20,16 +20,19 @@ async function login() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-slate-100">
-    <form class="w-80 space-y-3 rounded-lg bg-white p-6 shadow" @submit.prevent="login">
-      <h1 class="text-xl font-semibold">Office Shout</h1>
+  <div class="w-[400px] bg-white">
+    <form class="space-y-4 p-8" @submit.prevent="login">
+      <div class="text-center">
+        <p class="mt-1 text-sm text-slate-500">Sign in to continue</p>
+      </div>
       <input v-model="email" type="email" placeholder="Email" required
-        class="w-full rounded border px-3 py-2" />
+        class="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-blue-400 focus:outline-none" />
       <input v-model="password" type="password" placeholder="Password" required
-        class="w-full rounded border px-3 py-2" />
+        class="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:border-blue-400 focus:outline-none" />
       <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-      <button :disabled="busy" class="w-full rounded bg-blue-600 py-2 text-white disabled:opacity-50">
-        Sign in
+      <button :disabled="busy"
+        class="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+        {{ busy ? "Signing in…" : "Sign in" }}
       </button>
     </form>
   </div>

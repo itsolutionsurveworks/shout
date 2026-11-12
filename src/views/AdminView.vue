@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { supabase, type Profile, type Role } from "../lib/supabase";
+import { onlineIds } from "../lib/presence";
+import UserAvatar from "../components/UserAvatar.vue";
 
 const users = ref<Profile[]>([]);
 const groups = ref<{ id: string; name: string; members: string[] }[]>([]);
@@ -58,28 +60,34 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl space-y-8">
-    <p v-if="err" class="text-red-600">{{ err }}</p>
+  <div class="h-[580px] w-[900px] space-y-6 overflow-auto bg-slate-50 p-5">
+    <p v-if="err" class="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">{{ err }}</p>
     <p class="text-sm text-slate-500">
       New accounts are created in the Supabase dashboard (Auth → Users). Set
       <code>full_name</code> and <code>department</code> in user metadata; a profile is created automatically.
     </p>
 
-    <section>
-      <h2 class="mb-2 font-semibold">Users</h2>
-      <table class="w-full bg-white text-sm">
-        <thead><tr class="border-b text-left"><th class="p-2">Name</th><th>Email</th><th>Department</th><th>Role</th></tr></thead>
+    <section class="rounded-xl bg-white p-5 shadow-sm">
+      <h2 class="mb-3 font-semibold">Users</h2>
+      <table class="w-full text-sm">
+        <thead><tr class="border-b border-slate-100 text-left text-slate-500"><th class="p-2">Name</th><th>Email</th><th>Department</th><th>Role</th><th>Status</th></tr></thead>
         <tbody>
-          <tr v-for="u in users" :key="u.id" class="border-b">
-            <td class="p-2">{{ u.full_name }}</td>
-            <td>{{ u.email }}</td>
-            <td><input :value="u.department" class="rounded border px-2 py-1"
+          <tr v-for="u in users" :key="u.id" class="border-b border-slate-100">
+            <td class="p-2 font-medium"><span class="flex items-center gap-2"><UserAvatar :user="u" size-class="h-7 w-7" />{{ u.full_name }}</span></td>
+            <td class="text-slate-500">{{ u.email }}</td>
+            <td><input :value="u.department" class="rounded border border-slate-200 px-2 py-1"
               @change="updateUser(u, { department: ($event.target as HTMLInputElement).value })" /></td>
             <td>
-              <select :value="u.role" class="rounded border px-2 py-1"
+              <select :value="u.role" class="rounded border border-slate-200 px-2 py-1"
                 @change="updateUser(u, { role: ($event.target as HTMLSelectElement).value as Role })">
                 <option>admin</option><option>sender</option><option>receiver</option>
               </select>
+            </td>
+            <td>
+              <span class="flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full" :class="onlineIds.has(u.id) ? 'bg-green-500' : 'bg-slate-300'" />
+                {{ onlineIds.has(u.id) ? "Online" : "Offline" }}
+              </span>
             </td>
           </tr>
         </tbody>
