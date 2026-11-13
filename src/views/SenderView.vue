@@ -25,7 +25,8 @@ async function load() {
   groups.value = (g.data ?? []).map((x: any) => ({
     id: x.id,
     name: x.name,
-    members: x.group_members.map((m: any) => m.user_id),
+    // You can't shout yourself, so you're never a recipient of your own group shout.
+    members: x.group_members.map((m: any) => m.user_id).filter((id: string) => id !== props.me.id),
   }));
 }
 

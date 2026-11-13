@@ -88,7 +88,7 @@ async function loadLogs() {
   for (let from = 0; ; from += ROW_PAGE) {
     let req = supabase
       .from("notifications")
-      .select("id, batch_id, group_id, recipient_id, message, status, created_at, acknowledged_at, sender:sender_id(full_name), recipient:recipient_id(full_name)")
+      .select("id, batch_id, group_id, sender_id, recipient_id, message, status, created_at, acknowledged_at, sender:sender_id(full_name), recipient:recipient_id(full_name)")
       .order("created_at", { ascending: false })
       .order("id")
       .range(from, from + ROW_PAGE - 1);
@@ -263,7 +263,7 @@ const auditRows = computed<AuditRow[]>(() => {
       message: head.message,
       receipt: aggregateReceipt(rs.map((n) => n.status)) as Receipt,
       latency: latencyOf(rs),
-      group: group ? { name: group.name, members: group.members } : null,
+      group: group ? { name: group.name, members: group.members.filter((id) => id !== head.sender_id) } : null,
       rows: rs,
     };
   });

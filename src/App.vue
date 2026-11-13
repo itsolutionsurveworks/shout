@@ -200,7 +200,7 @@ async function logout() {
   <LoginView v-else-if="!me" ref="loginView" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
     <!-- Browser-style tab strip: the active tab rises into the white toolbar below it -->
-    <header ref="header" class="relative z-10 flex shrink-0 items-end justify-between bg-[var(--theme-header)] pr-3 pt-2">
+    <header ref="header" class="relative z-30 flex shrink-0 items-end justify-between bg-[var(--theme-header)] pr-3 pt-2">
       <div class="flex items-end self-stretch">
         <span v-if="themeBadge" class="mb-2 ml-3 self-center text-base leading-none" aria-hidden="true">{{ themeBadge }}</span>
         <span v-if="me.role === 'sender' || me.role === 'receiver'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
