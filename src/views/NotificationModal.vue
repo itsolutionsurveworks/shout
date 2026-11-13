@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import UserAvatar from "../components/UserAvatar.vue";
@@ -46,6 +46,34 @@ async function acknowledge() {
   }
 }
 
+// While a shout is unacknowledged, re-raise the popup every REPOP_MS so it can't stay
+// buried under other windows. Stops as soon as the queue is empty.
+const REPOP_MS = 5_000;
+let repop: ReturnType<typeof setInterval> | undefined;
+
+async function raiseWindow() {
+  if (!win) return;
+  await win.show();
+  await win.unminimize();
+  await win.setAlwaysOnTop(true);
+  await win.setFocus();
+}
+
+function startRepop() {
+  if (repop || !win) return;
+  repop = setInterval(() => {
+    if (queue.value.length === 0) return stopRepop();
+    raiseWindow().catch((e) => console.error("Re-pop failed", e));
+  }, REPOP_MS);
+}
+
+function stopRepop() {
+  clearInterval(repop);
+  repop = undefined;
+}
+
+watch(() => queue.value.length, (len) => (len > 0 ? startRepop() : stopRepop()));
+
 // Catch up on anything sent while the app was offline.
 async function loadPending() {
   const { data } = await supabase
@@ -79,6 +107,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   clearInterval(clock);
+  stopRepop();
   supabase.removeChannel(channel);
 });
 </script>

@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { isAdminRole, roleLabel, shouldRemember, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
+import { isAdminRole, roleLabel, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
 import { checkForUpdates, installPendingUpdate, startUpdateChecks, stopUpdateChecks } from "./lib/updater";
 import { applyTheme, isThemeKey, THEMES, type ThemeKey } from "./lib/themes";
@@ -122,8 +122,6 @@ onMounted(async () => {
     // A downloaded update installs only when the app is opened from the tray or launched again (Rust emits "app-opened").
     void listen("app-opened", () => void installPendingUpdate());
   }
-  // Only the main window starts a session; "Remember me" off means signing in again after a restart.
-  if (!isAlertWindow && !shouldRemember()) await supabase.auth.signOut({ scope: "local" });
   // The refresh button reloads the signed-in user's profile too (role or name may have changed).
   offRefresh = onRefresh(() => Promise.all([
     me.value && loadProfile(me.value.id),
