@@ -14,7 +14,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "nume
       <p class="whitespace-pre-wrap break-words text-sm text-slate-900">{{ msg.message }}</p>
       <button class="absolute -left-6 top-1 rounded-full p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
         title="Message info" aria-label="Message info" @click="$emit('info')"><Info class="h-4 w-4" /></button>
-      <div class="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-500">
+      <div class="mt-0.5 flex items-center justify-end gap-1 text-2xs text-slate-500">
         <span>{{ time(msg.created_at) }}</span>
         <ReceiptIcon :receipt="msg.receipt" />
       </div>

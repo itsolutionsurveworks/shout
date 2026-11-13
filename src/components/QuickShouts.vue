@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { Check, Pencil, Plus, Trash2, X } from "lucide-vue-next";
 import { supabase, type Profile, type QuickShout } from "../lib/supabase";
 import { onRefresh } from "../lib/refresh";
+import { cached } from "../lib/cache";
 
 const props = defineProps<{ me: Profile; disabled?: boolean }>();
 const emit = defineEmits<{ send: [text: string]; error: [message: string] }>();
@@ -10,11 +11,12 @@ const emit = defineEmits<{ send: [text: string]; error: [message: string] }>();
 // Used once, to seed a brand-new account so the list isn't empty on first use.
 const DEFAULTS = ["Please come to Office 3", "Call Ext. 102", "Please come to my desk"];
 
-const items = ref<QuickShout[]>([]);
+// Cached per user, so the saved shouts appear at once; the fresh list replaces them when it arrives.
+const items = cached<QuickShout[]>(`quick:${props.me.id}`, []);
 const draft = ref("");
 const editingId = ref<string | null>(null);
 const editText = ref("");
-const loaded = ref(false);
+const loaded = ref(items.value.length > 0);
 const manage = ref(false);
 
 async function load() {

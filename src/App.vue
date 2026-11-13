@@ -7,7 +7,8 @@ import { isAdminRole, roleLabel, supabase, type HeaderMessage, type Profile } fr
 import { startPresence, stopPresence } from "./lib/presence";
 import { checkForUpdates, installPendingUpdate, startUpdateChecks, stopUpdateChecks } from "./lib/updater";
 import { applyTheme, isThemeKey, THEMES, type ThemeKey } from "./lib/themes";
-import { onRefresh, refreshAll, refreshing } from "./lib/refresh";
+import { onRefresh, refreshAll, refreshedAt, refreshing, refreshState } from "./lib/refresh";
+import { cached, clearCache } from "./lib/cache";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
 import ReceiverView from "./views/ReceiverView.vue";
@@ -23,20 +24,37 @@ import { ChevronDown, LogOut, RotateCw, UserRoundPen } from "lucide-vue-next";
 const isAlertWindow = "__TAURI_INTERNALS__" in window && getCurrentWindow().label === "alert";
 
 const me = ref<Profile | null>(null);
+// Last known profile of the signed-in user. Used at startup to show the app before the network answers.
+const cachedProfile = cached<Profile | null>("profile", null);
 const loading = ref(true);
 const tab = ref<"people" | "admin">("people");
 const showProfile = ref(false);
 const menuOpen = ref(false);
-const headerMessage = ref<HeaderMessage | null>(null);
+// Cached so the header message is still shown on launch while the fresh copy loads.
+const headerMessage = cached<HeaderMessage | null>("header", null);
 
 // Shared message shown left of the refresh button. Only developers can change it.
+// Loaders return the error (if any) instead of throwing, so the refresh button can report failures.
 async function loadHeaderMessage() {
-  const { data } = await supabase.from("header_message").select("message, enabled").eq("id", 1).single();
+  const { data, error } = await supabase.from("header_message").select("message, enabled").eq("id", 1).single();
+  if (error) return error;
   headerMessage.value = (data as HeaderMessage | null) ?? null;
+  return null;
 }
 
+// Status line: refresh progress first, then the dev message if enabled, otherwise the last refresh result.
+const timeFormat: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+const statusLine = computed(() => {
+  if (refreshState.value === "fetching") return { text: "Fetching…", error: false };
+  if (headerMessage.value?.enabled && headerMessage.value.message) return { text: headerMessage.value.message, error: false };
+  const stamp = refreshedAt.value ? ` · ${refreshedAt.value.toLocaleString([], timeFormat)}` : "";
+  if (refreshState.value === "error") return { text: `Refresh failed${stamp}`, error: true };
+  return { text: `Up to date${stamp}`, error: false };
+});
+
 // App theme (seasonal/occasion colors). Set by developers in the Dev panel; applied to everyone live.
-const themeKey = ref<ThemeKey>("default");
+// Cached, so the last theme is applied straight away on launch (setTheme validates the stored value).
+const themeKey = cached<ThemeKey>("theme", "default");
 const themeBadge = computed(() => THEMES[themeKey.value].badge);
 const themeOverlay = computed(() => THEMES[themeKey.value].overlay);
 function setTheme(value: unknown) {
@@ -44,8 +62,10 @@ function setTheme(value: unknown) {
   applyTheme(themeKey.value);
 }
 async function loadTheme() {
-  const { data } = await supabase.from("app_theme").select("theme_key").eq("id", 1).single();
+  const { data, error } = await supabase.from("app_theme").select("theme_key").eq("id", 1).single();
+  if (error) return error;
   setTheme(data?.theme_key);
+  return null;
 }
 let themeChannel: ReturnType<typeof supabase.channel> | null = null;
 let updateChannel: ReturnType<typeof supabase.channel> | null = null;
@@ -54,10 +74,15 @@ async function loadProfile(userId: string | null) {
   if (!userId) {
     stopPresence();
     me.value = null;
-    return;
+    // Signed out: nothing signed-in may stay on disk.
+    cachedProfile.value = null;
+    clearCache();
+    return null;
   }
-  const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+  if (error) return error;
   me.value = data as Profile | null;
+  cachedProfile.value = me.value;
   // Only the main window announces presence; the alert popup just listens for shouts.
   if (me.value && !isAlertWindow) startPresence(me.value);
   // Tell the database which build this account is running (shown in the Dev tab's App versions card).
@@ -66,6 +91,7 @@ async function loadProfile(userId: string | null) {
       if (error) console.error("Version report failed", error);
     });
   }
+  return null;
 }
 
 // The window opens at a sensible default size for each view, but the user can resize it.
@@ -123,11 +149,16 @@ onMounted(async () => {
     void listen("app-opened", () => void installPendingUpdate());
   }
   // The refresh button reloads the signed-in user's profile too (role or name may have changed).
-  offRefresh = onRefresh(() => Promise.all([
-    me.value && loadProfile(me.value.id),
-    loadHeaderMessage(),
-    loadTheme(),
-  ]));
+  // Throwing here marks the refresh as failed in the status line.
+  offRefresh = onRefresh(async () => {
+    const errors = await Promise.all([
+      me.value ? loadProfile(me.value.id) : null,
+      loadHeaderMessage(),
+      loadTheme(),
+    ]);
+    const failed = errors.find(Boolean);
+    if (failed) throw failed;
+  });
   // Theme changes from a developer reach every open window immediately.
   themeChannel = supabase.channel("app-theme")
     .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_theme" },
@@ -140,8 +171,19 @@ onMounted(async () => {
         () => void checkForUpdates())
       .subscribe();
   }
+  // Paint from the cache first: the saved theme, and the saved profile when it belongs to the stored session.
+  // Fresh data then replaces these values as soon as the requests finish.
+  setTheme(themeKey.value);
   const { data } = await supabase.auth.getSession();
-  await Promise.all([loadProfile(data.session?.user.id ?? null), loadHeaderMessage(), loadTheme()]);
+  const userId = data.session?.user.id ?? null;
+  if (userId && cachedProfile.value?.id === userId) {
+    me.value = cachedProfile.value;
+    if (!isAlertWindow) startPresence(me.value);
+    loading.value = false;
+  }
+  await Promise.all([loadProfile(userId), loadHeaderMessage(), loadTheme()]);
+  refreshState.value = "ok";
+  refreshedAt.value = new Date();
   loading.value = false;
   sub = supabase.auth.onAuthStateChange((_e, s) => {
     // Defer: don't await supabase calls inside the callback.
@@ -157,11 +199,8 @@ onUnmounted(() => {
   stopUpdateChecks();
 });
 
-// The dev message is hidden the moment refresh is pressed. The reload below fetches it again,
-// so it only comes back if it is still enabled.
 function onRefreshClick() {
   if (refreshing.value) return;
-  headerMessage.value = null;
   void refreshAll();
 }
 
@@ -184,6 +223,9 @@ async function logout() {
   } finally {
     // Always leave the signed-in view, even if the network calls failed.
     me.value = null;
+    // Remove this account's cached data so the next sign-in (or another person) never sees it.
+    cachedProfile.value = null;
+    clearCache();
   }
 }
 </script>
@@ -204,29 +246,26 @@ async function logout() {
         <span v-if="me.role === 'sender' || me.role === 'receiver'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
         <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
         <nav v-if="me.role !== 'receiver'" class="flex items-end text-sm w-[22%] min-w-[160px] max-w-[220px] pl-3">
-          <button class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
+          <button class="relative flex-1 rounded-t-lg px-3 py-2 font-medium uppercase transition-colors"
             :class="tab === 'people' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
             @click="tab = 'people'">People</button>
-          <button v-if="isAdminRole(me.role)" class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
+          <button v-if="isAdminRole(me.role)" class="relative flex-1 rounded-t-lg px-3 py-2 font-medium uppercase transition-colors"
             :class="tab === 'admin' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
             @click="tab = 'admin'">{{ me.role === 'developer' ? 'Dev' : 'Admin' }}</button>
         </nav>
       </div>
       <div class="relative mb-1.5 flex items-center gap-1 text-sm">
-        <span v-if="headerMessage?.enabled && headerMessage.message" :title="headerMessage.message"
-          class="mr-1 max-w-[260px] truncate text-xs text-slate-600">{{ headerMessage.message }}</span>
-        <button class="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
+        <span :title="statusLine.text"
+          class="mr-1 max-w-[260px] truncate text-xs"
+          :class="statusLine.error ? 'text-red-600' : 'text-slate-600'">{{ statusLine.text }}</span>
+        <button class="mr-3 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
           title="Refresh everything" aria-label="Refresh" :disabled="refreshing" @click="onRefreshClick">
-          <RotateCw class="h-4 w-4" :class="{ 'animate-spin': refreshing }" />
+          <RotateCw class="h-5 w-5":class="{ 'animate-spin': refreshing }" />
         </button>
-        <button class="flex items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-slate-100" title="Account menu"
+        <button class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 shadow-sm hover:bg-slate-100" title="Account menu"
           aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
-          <span class="h-2.5 w-2.5 rounded-full bg-emerald-500" />
           <UserAvatar :user="me" size-class="h-7 w-7" />
-          <span class="flex flex-col items-start leading-tight">
-            <span class="font-medium">{{ me.full_name }}</span>
-            <span v-if="isAdminRole(me.role)" class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
-          </span>
+          <span class="font-medium">{{ me.full_name }}</span>
           <ChevronDown class="h-4 w-4 text-slate-400" />
         </button>
         <div v-if="menuOpen" class="fixed inset-0 z-10" @click="menuOpen = false" />

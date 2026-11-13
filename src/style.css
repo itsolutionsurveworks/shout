@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+/* Single source of truth for typography. Every text-* class in the app resolves to these tokens:
+   one font family and a size ceiling of 12px (the ChatList username). Do not use text-[Npx] values. */
+@theme {
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  --text-2xs: 0.6875rem;        /* 11px: meta, timestamps, badges */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;           /* 12px: captions, secondary text */
+  --text-xs--line-height: 1rem;
+  /* Capped at the ChatList username size (text-xs, 12px). Nothing in the app renders larger. */
+  --text-sm: 0.75rem;
+  --text-sm--line-height: 1rem;
+  --text-base: 0.75rem;
+  --text-base--line-height: 1rem;
+  --text-lg: 0.75rem;
+  --text-lg--line-height: 1rem;
+  --text-xl: 0.75rem;
+  --text-xl--line-height: 1rem;
+}
+
+html, body {
+  font-family: var(--font-sans);
+}
+
 /* App theme colors (see src/lib/themes.ts). These defaults match the original slate look
    and are overwritten at runtime when a theme is applied. */
 :root {

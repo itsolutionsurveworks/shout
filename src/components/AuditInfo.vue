@@ -54,19 +54,19 @@ const acked = computed(() => lines.value.filter((l) => l.status === "acked").len
     :title="`${acked} of ${lines.length} acknowledged`"
     :message="message" :sent-at="sentAt" @close="$emit('close')">
     <section class="py-2">
-      <h4 class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{{ groupName }} · latency</h4>
+      <h4 class="px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-slate-500">{{ groupName }} · latency</h4>
       <div v-for="l in lines" :key="l.id" class="flex items-center gap-2.5 px-3 py-1.5" :class="l.status === 'notSent' ? 'opacity-70' : ''">
         <UserAvatar :user="l.avatar" size-class="h-8 w-8" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-medium">{{ l.name }}</p>
-          <p v-if="l.receipt" class="flex items-center gap-1 text-[11px] text-slate-500">
+          <p v-if="l.receipt" class="flex items-center gap-1 text-2xs text-slate-500">
             <ReceiptIcon :receipt="l.receipt" /> {{ receiptLabel[l.receipt] }}
           </p>
-          <p v-else class="text-[11px] text-slate-500">Not online · not sent</p>
+          <p v-else class="text-2xs text-slate-500">Not online · not sent</p>
         </div>
         <span v-if="l.status === 'acked'" class="shrink-0 text-xs font-medium tabular-nums text-sky-600">{{ l.latency }}</span>
-        <span v-else-if="l.status === 'pending'" class="shrink-0 text-[10px] text-slate-400">No ack yet</span>
-        <span v-else class="shrink-0 text-[10px] text-slate-400">—</span>
+        <span v-else-if="l.status === 'pending'" class="shrink-0 text-2xs text-slate-400">No ack yet</span>
+        <span v-else class="shrink-0 text-2xs text-slate-400">—</span>
       </div>
     </section>
   </SidePanel>

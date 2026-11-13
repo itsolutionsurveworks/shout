@@ -166,7 +166,7 @@ async function save() {
             </button>
           </div>
 
-          <div class="flex items-center justify-between border-t border-slate-100 px-5 py-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          <div class="flex items-center justify-between border-t border-slate-100 px-5 py-2 text-2xs font-medium uppercase tracking-wide text-slate-500">
             <span>{{ versionFilter === 'all' ? 'Everyone' : versionFilter === 'current' ? 'Up to date' : 'Not up to date' }}</span>
             <span class="tabular-nums">{{ shownUsers.length }}</span>
           </div>
@@ -235,7 +235,7 @@ async function save() {
 
           <div class="space-y-4 px-5 py-4">
             <div>
-              <p class="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              <p class="mb-1.5 flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-slate-500">
                 <Eye class="h-3 w-3" /> Preview
               </p>
               <div class="flex items-center justify-end rounded-lg bg-slate-200 px-3 py-2">
@@ -247,7 +247,7 @@ async function save() {
             </div>
 
             <div>
-              <label for="header-message" class="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Message</label>
+              <label for="header-message" class="mb-1.5 block text-2xs font-medium uppercase tracking-wide text-slate-500">Message</label>
               <input id="header-message" v-model="draftMessage" :maxlength="MESSAGE_MAX" placeholder="Type a message…"
                 @input="markDirty"
                 class="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
@@ -257,7 +257,7 @@ async function save() {
                     :class="usage >= 1 ? 'bg-red-500' : usage > 0.9 ? 'bg-amber-500' : 'bg-emerald-500'"
                     :style="{ width: `${Math.min(usage, 1) * 100}%` }" />
                 </div>
-                <span class="text-[11px] tabular-nums text-slate-500">{{ draftMessage.length }}/{{ MESSAGE_MAX }}</span>
+                <span class="text-2xs tabular-nums text-slate-500">{{ draftMessage.length }}/{{ MESSAGE_MAX }}</span>
               </div>
             </div>
 

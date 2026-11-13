@@ -4,14 +4,16 @@ import { MessageCircle } from "lucide-vue-next";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
+import { cached } from "../lib/cache";
 import { useThread, type ChatGroup, type ChatTarget } from "../lib/thread";
 import ChatList from "../components/ChatList.vue";
 import ChatThread from "../components/ChatThread.vue";
 
 const props = defineProps<{ me: Profile }>();
 
-const people = ref<Profile[]>([]);
-const groups = ref<ChatGroup[]>([]);
+// People and groups are cached per user: the list shows at once, then fresh data replaces it.
+const people = cached<Profile[]>(`people:${props.me.id}`, []);
+const groups = cached<ChatGroup[]>(`groups:${props.me.id}`, []);
 const target = ref<ChatTarget | null>(null);
 const toast = ref("");
 const thread = useThread(toRef(() => props.me.id));
@@ -21,6 +23,9 @@ async function load() {
     supabase.from("profiles").select("*").neq("id", props.me.id).order("full_name"),
     supabase.from("groups").select("id, name, group_members(user_id)"),
   ]);
+  // A failed request keeps the last known list on screen; the error goes to the caller.
+  if (p.error) throw p.error;
+  if (g.error) throw g.error;
   people.value = (p.data ?? []) as Profile[];
   groups.value = (g.data ?? []).map((x: any) => ({
     id: x.id,
@@ -75,7 +80,7 @@ onActivated(() => { offRefresh = onRefresh(() => Promise.all([load(), thread.loa
 onDeactivated(() => offRefresh?.());
 
 onMounted(() => {
-  load();
+  load().catch((e) => console.error("Load failed", e)); // keep showing cached data
   thread.start();
 });
 onUnmounted(() => {

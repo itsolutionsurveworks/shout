@@ -5,6 +5,7 @@ import { supabase, type HeaderMessage, type Profile, type Role } from "../lib/su
 import DevPanel from "../components/DevPanel.vue";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
+import { cached } from "../lib/cache";
 import { aggregateReceipt, receiptLabel, type Receipt } from "../lib/receipts";
 import ReceiptIcon from "../components/ReceiptIcon.vue";
 import UserAvatar from "../components/UserAvatar.vue";
@@ -15,9 +16,13 @@ import AuditInfo from "../components/AuditInfo.vue";
 const props = defineProps<{ isDev: boolean; headerMessage: HeaderMessage | null }>();
 const emit = defineEmits<{ headerSaved: [value: HeaderMessage] }>();
 
-const users = ref<Profile[]>([]);
-const groups = ref<{ id: string; name: string; members: string[] }[]>([]);
-const logs = ref<any[]>([]);
+// Cached so the admin lists show instantly; a failed reload leaves the cached copy on screen.
+const users = cached<Profile[]>("admin:users", []);
+const groups = cached<{ id: string; name: string; members: string[] }[]>("admin:groups", []);
+// The default audit log is cached. A search result is kept separately so it is never saved as "last known".
+const logs = cached<any[]>("admin:logs", []);
+const searchLogs = ref<any[] | null>(null);
+const shownLogs = computed(() => searchLogs.value ?? logs.value);
 const newGroup = ref("");
 const err = ref("");
 const selectedGroupId = ref<string | null>(null);
@@ -45,11 +50,14 @@ function closeStatusMenuOnOutside(e: PointerEvent) {
   if (statusMenuOpen.value && !statusMenu.value?.contains(e.target as Node)) statusMenuOpen.value = false;
 }
 
+// Throws when a request fails (the refresh button reports it); the cached lists stay on screen.
 async function load() {
   const [u, g] = await Promise.all([
     supabase.from("profiles").select("*").order("full_name"),
     supabase.from("groups").select("id, name, group_members(user_id)").order("name"),
   ]);
+  if (u.error) throw u.error;
+  if (g.error) throw g.error;
   users.value = (u.data ?? []) as Profile[];
   groups.value = (g.data ?? []).map((x: any) => ({
     id: x.id, name: x.name, members: x.group_members.map((m: any) => m.user_id),
@@ -58,6 +66,10 @@ async function load() {
     selectedGroupId.value = groups.value[0]?.id ?? null;
   }
   await loadLogs();
+}
+// For background triggers (timers, realtime, focus): failures are logged, not thrown.
+function quietLoad() {
+  return load().catch((e) => console.error("Load failed", e));
 }
 
 // Audit log: the newest LOG_LIMIT rows when the search box is empty; otherwise a database-wide
@@ -101,7 +113,11 @@ async function loadLogs() {
     if (!term && new Set(rows.map(batchKey)).size > LOG_ENTRIES) break; // enough entries; one extra so the 200th is complete
     if (term && rows.length >= MAX_SEARCH_ROWS) break;
   }
-  logs.value = rows;
+  if (term) searchLogs.value = rows;
+  else {
+    searchLogs.value = null;
+    logs.value = rows;
+  }
 }
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 watch(query, () => {
@@ -112,7 +128,7 @@ watch(query, () => {
 async function updateUser(u: Profile, patch: Partial<{ full_name: string; role: Role; department: string }>) {
   const { error } = await supabase.from("profiles").update(patch).eq("id", u.id);
   err.value = error?.message ?? "";
-  load();
+  quietLoad();
 }
 
 // Admin renames a user; empty names are ignored and the field snaps back to the stored value.
@@ -131,7 +147,7 @@ async function addGroup() {
   const { error } = await supabase.from("groups").insert({ name: newGroup.value.trim() });
   err.value = error?.message ?? "";
   newGroup.value = "";
-  load();
+  quietLoad();
 }
 
 // Bulk add/remove in one request, used by "Select all" for the currently filtered people.
@@ -142,7 +158,7 @@ async function setMembers(groupId: string, userIds: string[], add: boolean) {
     ? await q.insert(userIds.map((user_id) => ({ group_id: groupId, user_id })))
     : await q.delete().eq("group_id", groupId).in("user_id", userIds);
   err.value = error?.message ?? "";
-  load();
+  quietLoad();
 }
 
 async function toggleMember(groupId: string, userId: string, isMember: boolean) {
@@ -151,7 +167,7 @@ async function toggleMember(groupId: string, userId: string, isMember: boolean) 
     ? await q.delete().match({ group_id: groupId, user_id: userId })
     : await q.insert({ group_id: groupId, user_id: userId });
   err.value = error?.message ?? "";
-  load();
+  quietLoad();
 }
 
 
@@ -239,7 +255,7 @@ function latencyOf(rs: any[]): string {
 }
 const auditRows = computed<AuditRow[]>(() => {
   const by = new Map<string, any[]>();
-  for (const n of logs.value) {
+  for (const n of shownLogs.value) {
     const k = n.batch_id ?? n.id;
     (by.get(k) ?? by.set(k, []).get(k)!).push(n);
   }
@@ -300,7 +316,7 @@ let offRefresh: (() => void) | null = null;
 onActivated(async () => {
   active = true;
   offRefresh = onRefresh(load);
-  await load();
+  await quietLoad();
   snapshotMemberOrder();
 });
 onDeactivated(() => {
@@ -316,7 +332,7 @@ let pending: ReturnType<typeof setTimeout> | undefined;
 function refresh() {
   if (!active) return;
   clearTimeout(pending);
-  pending = setTimeout(load, 150); // coalesce bursts (e.g. "select all") into one fetch
+  pending = setTimeout(quietLoad, 150); // coalesce bursts (e.g. "select all") into one fetch
 }
 const channel = supabase
   .channel("admin-live")
@@ -365,7 +381,7 @@ onUnmounted(() => {
             :class="section === n.key ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'" />
           <span class="min-w-0 flex-1 truncate">{{ n.label }}</span>
           <span v-if="n.count != null"
-            class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+            class="shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold tabular-nums"
             :class="section === n.key ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'">{{ n.count }}</span>
         </button>
       </nav>
@@ -382,7 +398,7 @@ onUnmounted(() => {
           <ScrollHint :card="false">
             <table class="w-full table-fixed text-sm">
               <thead class="sticky top-0 z-10 bg-white">
-                <tr class="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                <tr class="border-b border-slate-200 text-left text-2xs uppercase tracking-wide text-slate-500">
                   <th class="w-[5%] px-4 py-2.5 font-medium">#</th>
                   <th class="w-[39%] px-4 py-2.5 font-medium">User</th>
                   <th class="w-[19%] px-2 py-2.5 font-medium">Department</th>
@@ -417,7 +433,7 @@ onUnmounted(() => {
                       <UserAvatar :user="u" size-class="h-8 w-8" />
                       <span class="min-w-0 flex-1">
                         <input :value="u.full_name" title="Edit name" aria-label="Edit name"
-                          class="-mx-1 block w-[calc(100%+0.5rem)] truncate rounded px-1 py-0.5 font-medium text-slate-900 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          class="-mx-1 block w-[calc(100%+0.5rem)] truncate rounded px-1 py-0.5 text-xs font-medium text-slate-900 hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
                           @change="renameUser(u, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()" />
                         <span class="block truncate px-1 text-xs text-slate-500">{{ u.email }}</span>
                       </span>
@@ -487,9 +503,9 @@ onUnmounted(() => {
                     ? 'bg-white font-semibold text-emerald-800 shadow-sm ring-1 ring-slate-200'
                     : 'font-medium text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'"
                   @click="selectedGroupId = g.id">
-                  <span class="w-4 shrink-0 text-right text-[11px] tabular-nums text-slate-400">{{ i + 1 }}</span>
+                  <span class="w-4 shrink-0 text-right text-2xs tabular-nums text-slate-400">{{ i + 1 }}</span>
                   <span class="min-w-0 flex-1 truncate" :title="g.name">{{ g.name }}</span>
-                  <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+                  <span class="shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold tabular-nums"
                     :class="g.id === selectedGroupId ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'">{{ g.members.length }}</span>
                 </button>
                 <p v-if="!shownGroups.length" class="p-6 text-center text-sm text-slate-400">No groups yet</p>
@@ -540,8 +556,8 @@ onUnmounted(() => {
           <ScrollHint :card="false">
             <table class="w-full table-fixed text-xs">
               <thead class="sticky top-0 z-10 bg-white">
-                <tr class="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                  <th class="w-[5%] px-2 py-2.5 font-medium">#</th>
+                <tr class="border-b border-slate-200 text-left text-2xs uppercase tracking-wide text-slate-500">
+                  <th class="w-[5%] px-2 py-2.5 text-center font-medium">#</th>
                   <th class="w-[10%] px-2 py-2.5 font-medium">Time</th>
                   <th class="w-[20%] px-2 py-2.5 font-medium">From / To</th>
                   <th class="w-[37%] px-2 py-2.5 font-medium">Message</th>
@@ -551,25 +567,25 @@ onUnmounted(() => {
               </thead>
               <tbody>
                 <tr v-for="(n, i) in pagedLogs" :key="n.key" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td class="px-2 py-2.5 text-[10px] tabular-nums text-slate-400">{{ page * PAGE_SIZE + i + 1 }}</td>
-                  <td class="px-2 py-2.5 text-[10px] text-slate-500">
+                  <td class="px-2 py-2.5 text-center text-2xs tabular-nums text-slate-400">{{ page * PAGE_SIZE + i + 1 }}</td>
+                  <td class="px-2 py-2.5 text-2xs text-slate-500">
                     <span class="block truncate">{{ auditTime(n.created_at).top }}</span>
                     <span v-if="auditTime(n.created_at).bottom" class="block truncate">{{ auditTime(n.created_at).bottom }}</span>
                   </td>
                   <td class="px-2 py-2.5 text-xs">
                     <span class="block truncate font-medium text-slate-900" :title="n.sender?.full_name">{{ n.sender?.full_name }}</span>
                     <span class="block truncate text-slate-500" :title="n.to">{{ n.to }}</span>
-                    <span v-if="n.toSub" class="block truncate text-[10px] text-slate-400">{{ n.toSub }}</span>
+                    <span v-if="n.toSub" class="block truncate text-2xs text-slate-400">{{ n.toSub }}</span>
                   </td>
                   <td class="truncate px-2 py-2.5 text-slate-700" :title="n.message">{{ n.message }}</td>
                   <td class="px-2 py-2.5">
-                    <span class="flex items-center gap-1.5 text-[11px]" :class="n.receipt === 'seen' ? 'text-sky-600' : 'text-slate-500'">
+                    <span class="flex items-center gap-1.5 text-2xs" :class="n.receipt === 'seen' ? 'text-sky-600' : 'text-slate-500'">
                       <ReceiptIcon :receipt="n.receipt" />
                       {{ receiptLabel[n.receipt] }}
                     </span>
                   </td>
                   <td class="truncate px-2 py-2.5 text-xs text-slate-500">
-                    <button v-if="n.group" class="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+                    <button v-if="n.group" class="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-2xs text-slate-600 hover:bg-slate-100"
                       title="Show each member's latency" @click="auditInfoKey = n.key">Show</button>
                     <template v-else>{{ n.latency }}</template>
                   </td>

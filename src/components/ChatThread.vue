@@ -90,7 +90,7 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
         </p>
         <template v-for="{ e, sep } in items" :key="e.id">
           <div v-if="sep" class="flex justify-center py-1">
-            <span class="rounded-lg bg-white/90 px-3 py-1 text-[11px] font-medium uppercase text-slate-500 shadow-sm">{{ sep }}</span>
+            <span class="rounded-lg bg-white/90 px-3 py-1 text-2xs font-medium uppercase text-slate-500 shadow-sm">{{ sep }}</span>
           </div>
           <MessageBubble v-if="e.m" :msg="e.m" @info="infoKey = e.m.key" />
           <ReplyBubble v-else-if="e.reply" :row="e.reply" :name="nameOf(e.reply.recipient_id)" :show-name="!!group" />

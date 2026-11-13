@@ -1,5 +1,6 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, type Ref } from "vue";
 import { supabase, type Notification } from "./supabase";
+import { cached } from "./cache";
 import { aggregateReceipt, type Receipt } from "./receipts";
 
 // One chat message = one send action. A group shout is several rows sharing a batch_id.
@@ -18,19 +19,22 @@ export type ChatTarget = { kind: "user" | "group"; id: string };
 // Rows are stored by id so an insert echo / update never duplicates a message.
 export function useThread(meId: Ref<string> | string) {
   const id = () => (typeof meId === "string" ? meId : meId.value);
-  const rows = ref<Record<string, Notification>>({});
+  // Cached per sender, so the history shows instantly on the next launch.
+  const rows = cached<Record<string, Notification>>(`sent:${id()}`, {});
 
   function merge(n: Notification) {
     rows.value[n.id] = { ...rows.value[n.id], ...n };
   }
 
   async function load() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("notifications")
       .select("*")
       .eq("sender_id", id())
       .order("created_at", { ascending: false })
       .limit(500);
+    // On failure keep the rows we already show (the cached copy) instead of blanking them.
+    if (error) throw error;
     const map: Record<string, Notification> = {};
     for (const n of (data ?? []) as Notification[]) map[n.id] = n;
     rows.value = map;
@@ -69,19 +73,21 @@ export function useThread(meId: Ref<string> | string) {
       (p) => { if (p.new && "id" in p.new) merge(p.new as Notification); });
 
   let timer: ReturnType<typeof setInterval> | undefined;
+  // Background refetches stay quiet on failure; the cached rows remain on screen.
+  const quietLoad = () => { load().catch(() => {}); };
 
   return {
     rows, messages, forTarget, merge, load,
     // Realtime is the fast path; a light refetch (and on window focus) guarantees replies
     // still show up if an event is dropped.
     start() {
-      channel.subscribe((s) => { if (s === "SUBSCRIBED") load(); });
-      timer = setInterval(load, 8000);
-      window.addEventListener("focus", load);
+      channel.subscribe((s) => { if (s === "SUBSCRIBED") quietLoad(); });
+      timer = setInterval(quietLoad, 8000);
+      window.addEventListener("focus", quietLoad);
     },
     stop() {
       clearInterval(timer);
-      window.removeEventListener("focus", load);
+      window.removeEventListener("focus", quietLoad);
       supabase.removeChannel(channel);
     },
   };

@@ -46,20 +46,20 @@ const ackCount = computed(() => {
     :title="ackCount ? `${ackCount.done} of ${ackCount.total} acknowledged` : ''"
     :message="msg.message" :sent-at="msg.created_at" @close="$emit('close')">
     <section v-for="s in sections" :key="s.title" class="border-b border-slate-100 py-2">
-      <h4 class="flex items-center gap-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <h4 class="flex items-center gap-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-slate-500">
         <ReceiptIcon :receipt="s.receipt" /> {{ s.title }}
       </h4>
       <div v-for="r in s.rows" :key="r.id" class="flex items-center gap-2.5 px-3 py-1.5">
         <UserAvatar :user="person(r.recipient_id)" size-class="h-8 w-8" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-medium">{{ person(r.recipient_id).full_name }}</p>
-          <p v-if="replyLabel(r.status)" class="text-[11px] font-medium text-sky-600">{{ replyLabel(r.status) }}</p>
+          <p v-if="replyLabel(r.status)" class="text-2xs font-medium text-sky-600">{{ replyLabel(r.status) }}</p>
         </div>
-        <span class="shrink-0 text-[10px] text-slate-500">{{ time(s.at(r)) }}</span>
+        <span class="shrink-0 text-2xs text-slate-500">{{ time(s.at(r)) }}</span>
       </div>
     </section>
     <section v-if="skipped.length" class="py-2">
-      <h4 class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Not online · not sent</h4>
+      <h4 class="px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-slate-500">Not online · not sent</h4>
       <div v-for="id in skipped" :key="id" class="flex items-center gap-2.5 px-3 py-1.5 opacity-70">
         <UserAvatar :user="person(id)" size-class="h-8 w-8" />
         <p class="truncate text-sm">{{ person(id).full_name }}</p>

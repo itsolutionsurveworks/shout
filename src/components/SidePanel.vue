@@ -22,7 +22,7 @@ const time = (iso: string | null) =>
     <div class="min-h-0 flex-1 overflow-auto">
       <div class="bg-[#efeae2] px-3 py-3">
         <p class="ml-auto w-fit max-w-full break-words rounded-lg rounded-tr-none bg-emerald-100 px-2.5 py-1.5 text-sm shadow-sm">{{ message }}</p>
-        <p class="mt-1 text-right text-[10px] text-slate-500">{{ time(sentAt) }}</p>
+        <p class="mt-1 text-right text-2xs text-slate-500">{{ time(sentAt) }}</p>
       </div>
       <slot />
     </div>

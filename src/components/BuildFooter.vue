@@ -5,5 +5,5 @@ const built = new Date(__BUILD_TIME__).toLocaleString([], { dateStyle: "medium",
 </script>
 
 <template>
-  <p class="whitespace-nowrap text-[10px] text-slate-400">v{{ version }} · Last updated {{ built }}</p>
+  <p class="whitespace-nowrap text-2xs text-slate-400">v{{ version }} · Last updated {{ built }}</p>
 </template>

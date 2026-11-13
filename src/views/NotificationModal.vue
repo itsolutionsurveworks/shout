@@ -118,7 +118,7 @@ onUnmounted(() => {
     <!-- Header: same bar style as the chat header, emerald for an incoming alert -->
     <header class="flex shrink-0 items-center justify-between bg-emerald-600 px-4 py-2.5 text-white">
       <span class="text-xs font-semibold uppercase tracking-wider">Incoming shout</span>
-      <span class="flex items-center gap-2 text-[11px] text-emerald-100">
+      <span class="flex items-center gap-2 text-2xs text-emerald-100">
         <span v-if="queue.length > 1" class="rounded-full bg-white/20 px-2 py-0.5 font-semibold text-white">
           1 of {{ queue.length }}
         </span>
@@ -146,7 +146,7 @@ onUnmounted(() => {
 
     <!-- Actions -->
     <div class="shrink-0 space-y-2 bg-slate-100 px-4 py-3">
-      <p v-if="queue.length > 1" class="text-center text-[11px] text-slate-500">
+      <p v-if="queue.length > 1" class="text-center text-2xs text-slate-500">
         {{ queue.length - 1 }} more waiting
       </p>
       <p v-if="replyError" class="text-center text-xs text-red-600">{{ replyError }}</p>
