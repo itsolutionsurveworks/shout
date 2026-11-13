@@ -110,31 +110,46 @@ async function removePhoto() {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" @click.self="emit('close')">
-    <div class="w-[340px] rounded-2xl bg-white p-6 shadow-xl">
-      <h2 class="mb-5 text-lg font-semibold">Your profile</h2>
+    <div class="flex w-[360px] flex-col overflow-hidden rounded-2xl bg-[#efeae2] shadow-xl">
+      <!-- Header: same bar style as the chat header -->
+      <header class="flex shrink-0 items-center justify-between bg-emerald-600 px-4 py-2.5 text-white">
+        <span class="text-xs font-semibold uppercase tracking-wider">Your profile</span>
+        <button class="-mr-1 flex h-6 w-6 items-center justify-center rounded-full text-emerald-100 transition hover:bg-white/20 hover:text-white"
+          aria-label="Close" @click="emit('close')">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </header>
 
-      <div class="flex flex-col items-center text-center">
-        <UserAvatar :user="me" size-class="h-28 w-28" />
-        <p class="mt-3 text-sm font-semibold">{{ me.full_name }}</p>
-        <p class="text-sm text-slate-500">{{ me.department }} · {{ roleLabel(me.role) }}</p>
-        <p v-if="!isAdminRole(me.role)" class="mt-1 text-xs text-slate-400">Your name is set by an administrator.</p>
+      <!-- Identity card on the chat wallpaper -->
+      <div class="px-4 py-5">
+        <div class="flex flex-col items-center rounded-lg bg-white px-5 py-5 text-center shadow-sm">
+          <div class="relative">
+            <UserAvatar :user="me" size-class="h-28 w-28" />
+            <div v-if="busy" class="absolute inset-0 flex items-center justify-center rounded-full bg-white/70 text-xs font-medium text-slate-600">
+              Saving…
+            </div>
+          </div>
+          <h3 class="mt-3 font-medium leading-tight">{{ me.full_name }}</h3>
+          <p class="text-xs text-slate-500">{{ me.department }} · {{ roleLabel(me.role) }}</p>
+          <p v-if="!isAdminRole(me.role)" class="mt-3 text-2xs text-slate-400">Your name is set by an administrator.</p>
+        </div>
+        <p v-if="error" class="mt-3 text-center text-xs text-red-600">{{ error }}</p>
       </div>
 
-      <div class="mt-6 space-y-2">
+      <!-- Actions -->
+      <div class="shrink-0 space-y-2 bg-slate-100 px-4 py-3">
         <label
-          class="block w-full cursor-pointer rounded-lg bg-blue-600 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700"
+          class="block w-full cursor-pointer rounded-full bg-emerald-600 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
           :class="busy && 'pointer-events-none opacity-50'">
           {{ me.avatar_url ? "Change photo" : "Upload photo" }}
           <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" @change="upload" />
         </label>
         <button v-if="me.avatar_url" :disabled="busy"
-          class="w-full rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          class="w-full rounded-full border border-slate-300 bg-white py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
           @click="removePhoto">Remove photo</button>
-        <button class="w-full py-2 text-sm text-slate-500 hover:text-slate-900" @click="emit('close')">Close</button>
       </div>
-
-      <p v-if="busy" class="mt-3 text-center text-xs text-slate-400">Saving…</p>
-      <p v-if="error" class="mt-3 text-center text-sm text-red-600">{{ error }}</p>
     </div>
   </div>
 </template>

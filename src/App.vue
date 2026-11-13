@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { isAdminRole, roleLabel, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
+import { isAdminRole, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
 import { checkForUpdates, installPendingUpdate, startUpdateChecks, stopUpdateChecks } from "./lib/updater";
 import { applyTheme, isThemeKey, THEMES, type ThemeKey } from "./lib/themes";
@@ -17,7 +17,7 @@ import NotificationModal from "./views/NotificationModal.vue";
 import ProfileModal from "./views/ProfileModal.vue";
 import UserAvatar from "./components/UserAvatar.vue";
 import BuildFooter from "./components/BuildFooter.vue";
-import { ChevronDown, LogOut, RotateCw, UserRoundPen } from "lucide-vue-next";
+import { LogOut, Menu, RotateCw, UserRoundPen } from "lucide-vue-next";
 
 // The "alert" window is a small frameless popup that shows only the shout modal.
 // It runs this same app, so it renders just NotificationModal instead of the dashboard.
@@ -99,12 +99,12 @@ async function loadProfile(userId: string | null) {
 // changes, so a manual resize is not overwritten.
 // People and Admin share one frame, so switching tabs never resizes the window.
 const DEFAULT_CONTENT: Record<"login" | "main" | "admin" | "receiver", [number, number]> = {
-  login: [400, 340],
+  login: [300, 300],
   main: [800, 560],
   admin: [920, 560],
   receiver: [400, 560],
 };
-const MIN_WIDTH = 360;
+const MIN_WIDTH = 300;
 const MIN_HEIGHT = 300;
 
 const viewKey = computed<keyof typeof DEFAULT_CONTENT>(() => {
@@ -122,14 +122,6 @@ async function fitWindow() {
   if (view === lastView) return;
   lastView = view;
   let [width, contentHeight] = DEFAULT_CONTENT[view];
-  if (view === "login" && loginView.value) {
-    // The login window is exactly the sign-in form (no outer padding or card).
-    const form = (loginView.value.$el as HTMLElement).firstElementChild as HTMLElement | null;
-    if (form) {
-      width = form.offsetWidth;
-      contentHeight = form.offsetHeight;
-    }
-  }
   const headerHeight = header.value?.offsetHeight ?? 0;
   const win = getCurrentWindow();
   await win.setSize(new LogicalSize(width, contentHeight + headerHeight));
@@ -236,37 +228,52 @@ async function logout() {
   <div v-else class="relative flex h-screen w-screen flex-col overflow-hidden bg-[var(--theme-bg)] text-slate-900">
   <!-- Decorative theme layer: sits behind the header, content and footer (those are raised with z-10) -->
   <div v-if="themeOverlay !== 'none'" :class="`theme-overlay theme-overlay--${themeOverlay}`" aria-hidden="true" />
-  <div v-if="loading" class="flex flex-1 items-center justify-center text-slate-400">Loading…</div>
+  <div v-if="loading" class="flex flex-1 flex-col items-center justify-center gap-3 bg-white" role="status" aria-label="Loading">
+    <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-emerald-600/20 border-t-emerald-600" />
+    <div class="flex items-center gap-1" aria-hidden="true">
+      <span v-for="i in 3" :key="i" class="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-600" :style="{ animationDelay: `${(i - 1) * 150}ms` }" />
+    </div>
+  </div>
   <LoginView v-else-if="!me" ref="loginView" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
     <!-- Browser-style tab strip: the active tab rises into the white toolbar below it -->
     <header ref="header" class="relative z-30 flex shrink-0 items-end justify-between bg-[var(--theme-header)] pr-3 pt-2">
       <div class="flex items-end self-stretch">
         <span v-if="themeBadge" class="mb-2 ml-3 self-center text-base leading-none" aria-hidden="true">{{ themeBadge }}</span>
-        <span v-if="me.role === 'sender' || me.role === 'receiver'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
+        <div v-if="me.role === 'receiver'" class="pointer-events-none absolute bottom-1.5 left-3 top-2 flex items-center gap-2">
+          <UserAvatar :user="me" size-class="h-8 w-8" />
+          <span class="hdr-fg-text text-sm font-bold uppercase tracking-wider text-slate-800">{{ me.full_name }}</span>
+        </div>
         <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
-        <nav v-if="me.role !== 'receiver'" class="flex items-end text-sm w-[22%] min-w-[160px] max-w-[220px] pl-3">
-          <button class="relative flex-1 rounded-t-lg px-3 py-2 font-medium uppercase transition-colors"
-            :class="tab === 'people' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
+        <nav v-if="me.role !== 'receiver'" class="flex items-end pl-3 text-sm"
+          :class="isAdminRole(me.role) ? 'w-[22%] min-w-[160px] max-w-[220px]' : 'w-[9%] min-w-[90px] max-w-[115px]'">
+          <button class="relative flex-1 rounded-t-lg py-2 font-medium uppercase transition-colors"
+            :class="[isAdminRole(me.role) ? 'px-3' : 'px-2', tab === 'people' ? 'bg-white text-slate-900' : 'hdr-fg text-slate-600 hover:bg-slate-300/60']"
             @click="tab = 'people'">People</button>
-          <button v-if="isAdminRole(me.role)" class="relative flex-1 rounded-t-lg px-3 py-2 font-medium uppercase transition-colors"
-            :class="tab === 'admin' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
+          <button v-if="isAdminRole(me.role)" class="relative flex-1 rounded-t-lg py-2 font-medium uppercase transition-colors"
+            :class="[isAdminRole(me.role) ? 'px-3' : 'px-2', tab === 'admin' ? 'bg-white text-slate-900' : 'hdr-fg text-slate-600 hover:bg-slate-300/60']"
             @click="tab = 'admin'">{{ me.role === 'developer' ? 'Dev' : 'Admin' }}</button>
         </nav>
       </div>
       <div class="relative mb-1.5 flex items-center gap-1 text-sm">
-        <span :title="statusLine.text"
+        <span v-if="me.role !== 'receiver'" :title="statusLine.text"
           class="mr-1 max-w-[260px] truncate text-xs"
-          :class="statusLine.error ? 'text-red-600' : 'text-slate-600'">{{ statusLine.text }}</span>
-        <button class="mr-3 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
+          :class="statusLine.error ? 'text-red-600' : 'hdr-fg-text text-slate-600'">{{ statusLine.text }}</span>
+        <button class="hdr-fg mr-3 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
           title="Refresh everything" aria-label="Refresh" :disabled="refreshing" @click="onRefreshClick">
           <RotateCw class="h-5 w-5":class="{ 'animate-spin': refreshing }" />
         </button>
-        <button class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 shadow-sm hover:bg-slate-100" title="Account menu"
+        <button v-if="me.role === 'receiver'" class="hdr-fg rounded-md p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900" title="Menu"
+          aria-label="Menu" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
+          <Menu class="h-5 w-5" />
+        </button>
+        <button v-else class="flex items-center gap-2 rounded-md border border-white/25 px-2 py-1 hover:opacity-80" title="Account menu"
           aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
           <UserAvatar :user="me" size-class="h-7 w-7" />
-          <span class="font-medium">{{ me.full_name }}</span>
-          <ChevronDown class="h-4 w-4 text-slate-400" />
+          <span class="flex flex-col items-start leading-tight">
+            <span class="hdr-fg-text font-medium">{{ me.full_name }}</span>
+            <span class="hdr-fg-text text-[10px] opacity-75">{{ me.department }}</span>
+          </span>
         </button>
         <div v-if="menuOpen" class="fixed inset-0 z-10" @click="menuOpen = false" />
         <div v-if="menuOpen" role="menu"

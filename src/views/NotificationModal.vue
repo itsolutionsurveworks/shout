@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import UserAvatar from "../components/UserAvatar.vue";
+import MessageContent from "../components/MessageContent.vue";
 
 const props = defineProps<{ me: Profile }>();
 
@@ -138,9 +139,8 @@ onUnmounted(() => {
     <!-- Message: an incoming bubble on the chat wallpaper -->
     <div class="flex min-h-0 flex-1 items-center px-4 py-3">
       <div class="relative w-full rounded-lg rounded-tl-none bg-white px-5 py-4 shadow-sm">
-        <p class="line-clamp-4 whitespace-pre-wrap break-words text-lg font-medium leading-snug text-slate-900">
-          {{ current.n.message }}
-        </p>
+        <MessageContent :text="current.n.message" img-class="max-h-48 max-w-full"
+          text-class="line-clamp-4 text-lg font-medium leading-snug text-slate-900" />
       </div>
     </div>
 

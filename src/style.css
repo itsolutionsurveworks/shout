@@ -18,6 +18,13 @@
   --text-lg--line-height: 1rem;
   --text-xl: 0.75rem;
   --text-xl--line-height: 1rem;
+
+  /* The app's one green. Every solid emerald shade (dots, buttons, links, rings, text) resolves to it;
+     the pale tints (50-300) stay light so they still work as backgrounds. */
+  --color-emerald-500: #047857;
+  --color-emerald-600: #047857;
+  --color-emerald-700: #047857;
+  --color-emerald-800: #047857;
 }
 
 html, body {
@@ -27,10 +34,15 @@ html, body {
 /* App theme colors (see src/lib/themes.ts). These defaults match the original slate look
    and are overwritten at runtime when a theme is applied. */
 :root {
-  --theme-header: #e2e8f0;
+  --theme-header: #047857;
   --theme-bg: #f8fafc;
-  --theme-accent: #059669;
+  --theme-accent: #047857;
 }
+
+/* The default theme's header is dark green, so header text and buttons turn white there. */
+html[data-theme="default"] .hdr-fg,
+html[data-theme="default"] .hdr-fg-text { color: #fff; }
+html[data-theme="default"] .hdr-fg:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
 
 /* Theme overlays: pure CSS particles, behind the content, ignoring clicks. */
 .theme-overlay {

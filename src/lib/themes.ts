@@ -17,9 +17,9 @@ export interface ThemeDef {
 export const THEMES: Record<ThemeKey, ThemeDef> = {
   default: {
     label: "Default",
-    header: "#e2e8f0",
+    header: "#047857",
     background: "#f8fafc",
-    accent: "#059669",
+    accent: "#047857",
     overlay: "none",
     preview: "The standard look",
   },

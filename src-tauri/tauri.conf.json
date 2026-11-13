@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Office Shout",
-        "width": 440,
-        "height": 360,
+        "width": 300,
+        "height": 300,
         "visible": true,
         "center": true,
         "resizable": false

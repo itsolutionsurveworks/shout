@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { Send, Users, Zap } from "lucide-vue-next";
+import { Send, Smile, Users, Zap } from "lucide-vue-next";
+import EmojiGifPicker from "./EmojiGifPicker.vue";
 import type { Notification, Profile } from "../lib/supabase";
 import { dayLabel, type ChatGroup, type ChatMessage } from "../lib/thread";
 import { replyLabel } from "../lib/receipts";
@@ -23,6 +24,7 @@ const emit = defineEmits<{ send: [text: string]; error: [m: string] }>();
 
 const draft = ref("");
 const showQuick = ref(false);
+const showPicker = ref(false);
 const infoKey = ref<string | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 const infoMsg = computed(() => props.messages.find((m) => m.key === infoKey.value) ?? null);
@@ -59,6 +61,12 @@ function submit() {
   if (!draft.value.trim() || !props.canSend) return;
   emit("send", draft.value);
   draft.value = "";
+}
+
+function sendGif(url: string) {
+  if (!props.canSend) return;
+  emit("send", url);
+  showPicker.value = false;
 }
 
 function toBottom() {
@@ -105,12 +113,22 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
       </div>
 
       <!-- Input bar: quick shout toggle on the left, custom message, send. -->
+      <div v-show="showPicker" class="absolute bottom-full left-3 right-3 z-20 mb-2">
+        <EmojiGifPicker @emoji="(e) => (draft += e)" @gif="sendGif" />
+      </div>
+
       <form class="flex items-center gap-2 bg-slate-100 px-3 py-2" @submit.prevent="submit">
+        <button type="button" aria-label="Emoji and GIFs" title="Emoji and GIFs"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
+          :class="showPicker ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
+          @click="showPicker = !showPicker; showQuick = false">
+          <Smile class="h-4 w-4" />
+        </button>
         <button type="button" :aria-expanded="showQuick" aria-label="Quick shouts"
           :title="showQuick ? 'Hide quick shouts' : 'Show quick shouts'"
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
           :class="showQuick ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
-          @click="showQuick = !showQuick">
+          @click="showQuick = !showQuick; showPicker = false">
           <Zap class="h-4 w-4" />
         </button>
         <input v-model="draft" maxlength="500" :disabled="!canSend" placeholder="Type a custom message"

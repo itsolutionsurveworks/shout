@@ -9,6 +9,7 @@ import ReceiptIcon from "./ReceiptIcon.vue";
 const props = defineProps<{
   people: Profile[];
   groups: ChatGroup[];
+  showGroups?: boolean;
   online: Set<string>;
   selected: ChatTarget | null;
   forTarget: (t: ChatTarget) => ChatMessage[];
@@ -50,7 +51,7 @@ const isSel = (r: Row) => props.selected?.kind === r.target.kind && props.select
       <input v-model="query" placeholder="Search or start new shout"
         class="w-full rounded-md bg-slate-100 px-2.5 py-1 text-xs placeholder:text-slate-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500" />
       <div class="flex gap-1.5 text-xs">
-        <button v-for="f in (['all', 'online', 'groups'] as const)" :key="f"
+        <button v-for="f in (showGroups === false ? ['all', 'online'] : ['all', 'online', 'groups']) as ('all' | 'online' | 'groups')[]" :key="f"
           class="rounded-full px-2 py-0.5 font-medium capitalize"
           :class="filter === f ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
           @click="filter = f">{{ f }}</button>
@@ -59,7 +60,7 @@ const isSel = (r: Row) => props.selected?.kind === r.target.kind && props.select
 
     <div class="min-h-0 flex-1 overflow-auto">
       <button v-for="r in rows" :key="r.target.kind + r.target.id"
-        class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-slate-50"
+        class="flex w-full items-center gap-2 border-b border-slate-100 px-2.5 py-2 text-left hover:bg-slate-50"
         :class="isSel(r) ? 'bg-slate-100 hover:bg-slate-100' : ''" @click="emit('select', r.target)">
         <UserAvatar v-if="r.user" :user="r.user" size-class="h-8 w-8">
           <span class="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white"
@@ -68,7 +69,7 @@ const isSel = (r: Row) => props.selected?.kind === r.target.kind && props.select
         <span v-else class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
           <Users class="h-3.5 w-3.5" />
         </span>
-        <span class="min-w-0 flex-1 border-b border-slate-100 pb-1.5">
+        <span class="min-w-0 flex-1">
           <span class="flex items-baseline justify-between gap-2">
             <span class="truncate text-xs font-medium text-slate-900">{{ r.name }}</span>
             <span v-if="r.last" class="shrink-0 text-2xs text-slate-500">{{ chatTime(r.last.created_at) }}</span>

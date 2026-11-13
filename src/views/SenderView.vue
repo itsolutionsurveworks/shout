@@ -14,6 +14,8 @@ const props = defineProps<{ me: Profile }>();
 // People and groups are cached per user: the list shows at once, then fresh data replaces it.
 const people = cached<Profile[]>(`people:${props.me.id}`, []);
 const groups = cached<ChatGroup[]>(`groups:${props.me.id}`, []);
+// Plain senders can message people 1:1 but have no access to groups or group shouts.
+const canUseGroups = props.me.role !== "sender";
 const target = ref<ChatTarget | null>(null);
 const toast = ref("");
 const thread = useThread(toRef(() => props.me.id));
@@ -21,7 +23,7 @@ const thread = useThread(toRef(() => props.me.id));
 async function load() {
   const [p, g] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", props.me.id).order("full_name"),
-    supabase.from("groups").select("id, name, group_members(user_id)"),
+    canUseGroups ? supabase.from("groups").select("id, name, group_members(user_id)") : Promise.resolve({ data: [], error: null }),
   ]);
   // A failed request keeps the last known list on screen; the error goes to the caller.
   if (p.error) throw p.error;
@@ -94,7 +96,7 @@ onUnmounted(() => {
   <!-- WhatsApp Web layout: chat list on the left, conversation on the right. -->
   <div class="flex min-h-0 min-w-0 flex-1 bg-white">
     <section class="flex w-[240px] shrink-0 flex-col border-r border-slate-200">
-      <ChatList :people="people" :groups="groups" :online="onlineIds" :selected="target"
+      <ChatList :people="people" :groups="canUseGroups ? groups : []" :show-groups="canUseGroups" :online="onlineIds" :selected="target"
         :for-target="thread.forTarget" @select="target = $event" />
     </section>
 
@@ -103,7 +105,7 @@ onUnmounted(() => {
     <section v-else class="flex flex-1 flex-col items-center justify-center bg-slate-50 text-center text-slate-500">
       <MessageCircle class="mb-3 h-14 w-14 text-slate-300" />
       <p class="text-lg font-light text-slate-600">Office Shout</p>
-      <p class="mt-1 max-w-xs text-sm">Pick a person or group to send a shout and see when it's delivered and seen.</p>
+      <p class="mt-1 max-w-xs text-sm">Pick a person{{ canUseGroups ? " or group" : "" }} to send a shout and see when it's delivered and seen.</p>
     </section>
 
     <div v-if="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg">
