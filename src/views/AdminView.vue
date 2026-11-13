@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, ScrollText, Search, UserRound, UsersRound } from "lucide-vue-next";
-import { supabase, type Profile, type Role } from "../lib/supabase";
+import { ChevronDown, ChevronLeft, ChevronRight, Code, Plus, ScrollText, Search, UserRound, UsersRound } from "lucide-vue-next";
+import { supabase, type HeaderMessage, type Profile, type Role } from "../lib/supabase";
+import DevPanel from "../components/DevPanel.vue";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
 import { chatTime } from "../lib/thread";
@@ -9,6 +10,10 @@ import { receiptLabel, receiptOf } from "../lib/receipts";
 import ReceiptIcon from "../components/ReceiptIcon.vue";
 import UserAvatar from "../components/UserAvatar.vue";
 import ScrollHint from "../components/ScrollHint.vue";
+
+// isDev: the signed-in user has the developer role, so the Dev section is listed.
+const props = defineProps<{ isDev: boolean; headerMessage: HeaderMessage | null }>();
+const emit = defineEmits<{ headerSaved: [value: HeaderMessage] }>();
 
 const users = ref<Profile[]>([]);
 const groups = ref<{ id: string; name: string; members: string[] }[]>([]);
@@ -19,7 +24,7 @@ const selectedGroupId = ref<string | null>(null);
 const memberQuery = ref("");
 
 // Same frame as the People tab: a list on the left, the selected section on the right.
-const section = ref<"users" | "groups" | "audit">("users");
+const section = ref<"users" | "groups" | "audit" | "dev">("users");
 const query = ref("");
 
 // Status column filter: the column header is the dropdown trigger.
@@ -175,6 +180,8 @@ const nav = computed(() => [
   { key: "users" as const, label: "Users", icon: UserRound, count: users.value.length },
   { key: "groups" as const, label: "Groups", icon: UsersRound, count: groups.value.length },
   { key: "audit" as const, label: "Audit log", icon: ScrollText, count: null },
+  // Developers only: sits below Audit log.
+  ...(props.isDev ? [{ key: "dev" as const, label: "Dev", icon: Code, count: null }] : []),
 ]);
 const title = computed(() => nav.value.find((n) => n.key === section.value)?.label ?? "");
 
@@ -313,9 +320,12 @@ onUnmounted(() => {
                   </td>
                   <td class="px-2 py-2.5">
                     <div class="relative">
-                      <select :value="u.role" class="w-full appearance-none rounded-lg bg-slate-100 py-1.5 pl-2.5 pr-9 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      <!-- Developer role is managed only in the Supabase dashboard: shown read-only here -->
+                      <select :value="u.role" :disabled="u.role === 'developer'"
+                        class="w-full appearance-none rounded-lg bg-slate-100 py-1.5 pl-2.5 pr-9 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                         @change="updateUser(u, { role: ($event.target as HTMLSelectElement).value as Role })">
-                        <option>admin</option><option>sender</option><option>receiver</option>
+                        <option v-if="u.role === 'developer'" value="developer">developer</option>
+                        <option value="admin">admin</option><option value="sender">sender</option><option value="receiver">receiver</option>
                       </select>
                       <ChevronDown class="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
                     </div>
@@ -393,6 +403,11 @@ onUnmounted(() => {
               {{ groups.length ? "Select a group" : "Create a group to add people to it" }}
             </div>
           </div>
+        </template>
+
+        <!-- Dev (developers only) -->
+        <template v-if="section === 'dev' && isDev">
+          <DevPanel :header-message="headerMessage" @header-saved="emit('headerSaved', $event)" />
         </template>
 
         <!-- Audit log -->

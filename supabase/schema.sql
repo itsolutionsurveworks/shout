@@ -1,5 +1,5 @@
 -- Enums
-CREATE TYPE user_role AS ENUM ('admin', 'sender', 'receiver');
+CREATE TYPE user_role AS ENUM ('admin', 'sender', 'receiver', 'developer');
 CREATE TYPE notif_status AS ENUM ('sent', 'delivered', 'acknowledged');
 
 CREATE TABLE profiles (
@@ -57,6 +57,11 @@ CREATE FUNCTION current_role_of_user() RETURNS user_role
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
 $$ SELECT role FROM profiles WHERE id = auth.uid() $$;
 
+-- Admin-level access. Developers have everything admins have.
+CREATE FUNCTION is_admin_role() RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
+$$ SELECT current_role_of_user() IN ('admin', 'developer') $$;
+
 -- Recipients may only move status forward and only touch status/timestamps.
 CREATE FUNCTION guard_notification_update() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -82,10 +87,16 @@ CREATE TRIGGER notifications_guard BEFORE UPDATE ON notifications
 CREATE FUNCTION guard_profile_update() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF auth.uid() IS NOT NULL AND current_role_of_user() <> 'admin'
-     AND (NEW.role <> OLD.role OR NEW.department <> OLD.department
-          OR NEW.email <> OLD.email OR NEW.full_name <> OLD.full_name) THEN
-    RAISE EXCEPTION 'Only admins can change these fields';
+  IF auth.uid() IS NOT NULL THEN
+    -- Developer role is only changed in the Supabase dashboard, never by app users.
+    IF NEW.role <> OLD.role AND (OLD.role = 'developer' OR NEW.role = 'developer') THEN
+      RAISE EXCEPTION 'The developer role can only be changed in the Supabase dashboard';
+    END IF;
+    IF NOT is_admin_role()
+       AND (NEW.role <> OLD.role OR NEW.department <> OLD.department
+            OR NEW.email <> OLD.email OR NEW.full_name <> OLD.full_name) THEN
+      RAISE EXCEPTION 'Only admins can change these fields';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
@@ -104,23 +115,37 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 -- Profiles
 CREATE POLICY "Authenticated read profiles" ON profiles FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Admins manage profiles" ON profiles FOR ALL TO authenticated
-  USING (current_role_of_user() = 'admin') WITH CHECK (current_role_of_user() = 'admin');
+  USING (is_admin_role()) WITH CHECK (is_admin_role());
 CREATE POLICY "Users update own presence" ON profiles FOR UPDATE TO authenticated
   USING (id = auth.uid()) WITH CHECK (id = auth.uid());
 
 -- Groups
 CREATE POLICY "Authenticated read groups" ON groups FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Admins manage groups" ON groups FOR ALL TO authenticated
-  USING (current_role_of_user() = 'admin') WITH CHECK (current_role_of_user() = 'admin');
+  USING (is_admin_role()) WITH CHECK (is_admin_role());
 CREATE POLICY "Authenticated read members" ON group_members FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Admins manage members" ON group_members FOR ALL TO authenticated
-  USING (current_role_of_user() = 'admin') WITH CHECK (current_role_of_user() = 'admin');
+  USING (is_admin_role()) WITH CHECK (is_admin_role());
 
 -- Notifications
 CREATE POLICY "Senders create notifications" ON notifications FOR INSERT TO authenticated
   WITH CHECK (sender_id = auth.uid() AND status = 'sent'
-              AND current_role_of_user() IN ('admin', 'sender'));
+              AND (is_admin_role() OR current_role_of_user() = 'sender'));
 CREATE POLICY "Read own notifications" ON notifications FOR SELECT TO authenticated
-  USING (auth.uid() IN (recipient_id, sender_id) OR current_role_of_user() = 'admin');
+  USING (auth.uid() IN (recipient_id, sender_id) OR is_admin_role());
 CREATE POLICY "Recipients update status" ON notifications FOR UPDATE TO authenticated
   USING (auth.uid() = recipient_id) WITH CHECK (auth.uid() = recipient_id);
+
+-- Header message (left of the refresh button). Everyone reads it; only developers edit it.
+CREATE TABLE header_message (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  message TEXT NOT NULL DEFAULT '' CHECK (char_length(message) <= 200),
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+INSERT INTO header_message (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+ALTER TABLE header_message ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated read header message" ON header_message FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Developers edit header message" ON header_message FOR UPDATE TO authenticated
+  USING (current_role_of_user() = 'developer') WITH CHECK (current_role_of_user() = 'developer');
+ALTER PUBLICATION supabase_realtime ADD TABLE header_message;

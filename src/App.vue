@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { shouldRemember, supabase, type Profile } from "./lib/supabase";
+import { isAdminRole, roleLabel, shouldRemember, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
 import { startUpdateChecks, stopUpdateChecks } from "./lib/updater";
 import { onRefresh, refreshAll, refreshing } from "./lib/refresh";
@@ -25,6 +25,13 @@ const loading = ref(true);
 const tab = ref<"people" | "admin">("people");
 const showProfile = ref(false);
 const menuOpen = ref(false);
+const headerMessage = ref<HeaderMessage | null>(null);
+
+// Shared message shown left of the refresh button. Only developers can change it.
+async function loadHeaderMessage() {
+  const { data } = await supabase.from("header_message").select("message, enabled").eq("id", 1).single();
+  headerMessage.value = (data as HeaderMessage | null) ?? null;
+}
 
 async function loadProfile(userId: string | null) {
   if (!userId) {
@@ -54,7 +61,7 @@ const MIN_HEIGHT = 300;
 const viewKey = computed<keyof typeof DEFAULT_CONTENT>(() => {
   if (!me.value) return "login";
   if (me.value.role === "receiver") return "receiver";
-  return me.value.role === "admin" ? "admin" : "main";
+  return isAdminRole(me.value.role) ? "admin" : "main";
 });
 const header = ref<HTMLElement | null>(null);
 const loginView = ref<{ $el: HTMLElement } | null>(null);
@@ -93,9 +100,12 @@ onMounted(async () => {
   // Only the main window starts a session; "Remember me" off means signing in again after a restart.
   if (!isAlertWindow && !shouldRemember()) await supabase.auth.signOut({ scope: "local" });
   // The refresh button reloads the signed-in user's profile too (role or name may have changed).
-  offRefresh = onRefresh(() => me.value && loadProfile(me.value.id));
+  offRefresh = onRefresh(() => Promise.all([
+    me.value && loadProfile(me.value.id),
+    loadHeaderMessage(),
+  ]));
   const { data } = await supabase.auth.getSession();
-  await loadProfile(data.session?.user.id ?? null);
+  await Promise.all([loadProfile(data.session?.user.id ?? null), loadHeaderMessage()]);
   loading.value = false;
   sub = supabase.auth.onAuthStateChange((_e, s) => {
     // Defer: don't await supabase calls inside the callback.
@@ -142,18 +152,20 @@ async function logout() {
     <!-- Browser-style tab strip: the active tab rises into the white toolbar below it -->
     <header ref="header" class="flex shrink-0 items-end justify-between bg-slate-200 pr-3 pt-2">
       <div class="flex items-end self-stretch">
-        <span v-if="me.role !== 'admin'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ me.role }}</span>
+        <span v-if="me.role === 'sender' || me.role === 'receiver'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
         <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
         <nav v-if="me.role !== 'receiver'" class="flex items-end text-sm w-[22%] min-w-[160px] max-w-[220px]">
           <button class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
             :class="tab === 'people' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
             @click="tab = 'people'">People</button>
-          <button v-if="me.role === 'admin'" class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
+          <button v-if="isAdminRole(me.role)" class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
             :class="tab === 'admin' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
-            @click="tab = 'admin'">Admin</button>
+            @click="tab = 'admin'">{{ me.role === 'developer' ? 'Dev' : 'Admin' }}</button>
         </nav>
       </div>
       <div class="relative mb-1.5 flex items-center gap-1 text-sm">
+        <span v-if="headerMessage?.enabled && headerMessage.message" :title="headerMessage.message"
+          class="mr-1 max-w-[260px] truncate text-xs text-slate-600">{{ headerMessage.message }}</span>
         <button class="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
           title="Refresh everything" aria-label="Refresh" :disabled="refreshing" @click="refreshAll()">
           <RotateCw class="h-4 w-4" :class="{ 'animate-spin': refreshing }" />
@@ -164,7 +176,7 @@ async function logout() {
           <UserAvatar :user="me" size-class="h-7 w-7" />
           <span class="flex flex-col items-start leading-tight">
             <span class="font-medium">{{ me.full_name }}</span>
-            <span v-if="me.role === 'admin'" class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{{ me.role }}</span>
+            <span v-if="isAdminRole(me.role)" class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
           </span>
           <ChevronDown class="h-4 w-4 text-slate-400" />
         </button>
@@ -190,7 +202,8 @@ async function logout() {
       <KeepAlive>
         <ReceiverView v-if="me.role === 'receiver'" :me="me" />
         <SenderView v-else-if="tab === 'people'" :me="me" />
-        <AdminView v-else-if="me.role === 'admin' && tab === 'admin'" />
+        <AdminView v-else-if="isAdminRole(me.role) && tab === 'admin'" :is-dev="me.role === 'developer'"
+          :header-message="headerMessage" @header-saved="headerMessage = $event" />
       </KeepAlive>
     </main>
     <!-- Build footer spans the full window width on the People and Admin views (receivers have it in their own bar) -->

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { supabase, type Profile } from "../lib/supabase";
+import { roleLabel, supabase, type Profile } from "../lib/supabase";
 import UserAvatar from "../components/UserAvatar.vue";
 
 const props = defineProps<{ me: Profile }>();
@@ -116,7 +116,7 @@ async function removePhoto() {
       <div class="flex flex-col items-center text-center">
         <UserAvatar :user="me" size-class="h-28 w-28" />
         <p class="mt-3 text-sm font-semibold">{{ me.full_name }}</p>
-        <p class="text-sm text-slate-500">{{ me.department }} · {{ me.role }}</p>
+        <p class="text-sm text-slate-500">{{ me.department }} · {{ roleLabel(me.role) }}</p>
         <p class="mt-1 text-xs text-slate-400">Your name is set by an administrator.</p>
       </div>
 

@@ -1,6 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 
-export type Role = "admin" | "sender" | "receiver";
+export type Role = "admin" | "sender" | "receiver" | "developer";
+
+// Developers get everything admins get, plus the Dev section.
+export const isAdminRole = (r: Role | undefined) => r === "admin" || r === "developer";
+// The developer role is shown as "dev" everywhere in the UI.
+export const roleLabel = (r: Role) => (r === "developer" ? "dev" : r);
+
+export interface HeaderMessage {
+  message: string;
+  enabled: boolean;
+}
 export type NotifStatus = "sent" | "delivered" | "acknowledged";
 
 export interface Profile {
