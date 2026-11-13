@@ -21,6 +21,9 @@ export interface Profile {
   role: Role;
   avatar_url: string | null;
   is_online: boolean;
+  // Build the account last ran (reported by report_app_version); null if never reported.
+  app_version?: string | null;
+  app_version_at?: string | null;
 }
 
 export interface QuickShout {

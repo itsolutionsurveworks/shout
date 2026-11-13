@@ -531,7 +531,7 @@ onUnmounted(() => {
 
         <!-- Dev (developers only) -->
         <template v-if="section === 'dev' && isDev">
-          <DevPanel :header-message="headerMessage" @header-saved="emit('headerSaved', $event)" />
+          <DevPanel :header-message="headerMessage" :users="users" @header-saved="emit('headerSaved', $event)" />
         </template>
 
         <!-- Audit log -->

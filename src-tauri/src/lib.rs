@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
 #[cfg(not(debug_assertions))]
@@ -15,6 +15,9 @@ fn show_main(app: &tauri::AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        // Tells the page the app was opened on purpose (tray, or a second launch), so a
+        // downloaded update can install now. Clicking a window that is already open does not emit this.
+        let _ = w.emit("app-opened", ());
     }
 }
 

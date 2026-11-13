@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { isAdminRole, roleLabel, shouldRemember, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
-import { startUpdateChecks, stopUpdateChecks } from "./lib/updater";
-import { onRefresh, refreshAll, refreshing, refreshStatus } from "./lib/refresh";
+import { checkForUpdates, installPendingUpdate, startUpdateChecks, stopUpdateChecks } from "./lib/updater";
+import { applyTheme, isThemeKey, THEMES, type ThemeKey } from "./lib/themes";
+import { onRefresh, refreshAll, refreshing } from "./lib/refresh";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
 import ReceiverView from "./views/ReceiverView.vue";
@@ -33,6 +35,21 @@ async function loadHeaderMessage() {
   headerMessage.value = (data as HeaderMessage | null) ?? null;
 }
 
+// App theme (seasonal/occasion colors). Set by developers in the Dev panel; applied to everyone live.
+const themeKey = ref<ThemeKey>("default");
+const themeBadge = computed(() => THEMES[themeKey.value].badge);
+const themeOverlay = computed(() => THEMES[themeKey.value].overlay);
+function setTheme(value: unknown) {
+  themeKey.value = isThemeKey(value) ? value : "default";
+  applyTheme(themeKey.value);
+}
+async function loadTheme() {
+  const { data } = await supabase.from("app_theme").select("theme_key").eq("id", 1).single();
+  setTheme(data?.theme_key);
+}
+let themeChannel: ReturnType<typeof supabase.channel> | null = null;
+let updateChannel: ReturnType<typeof supabase.channel> | null = null;
+
 async function loadProfile(userId: string | null) {
   if (!userId) {
     stopPresence();
@@ -43,6 +60,12 @@ async function loadProfile(userId: string | null) {
   me.value = data as Profile | null;
   // Only the main window announces presence; the alert popup just listens for shouts.
   if (me.value && !isAlertWindow) startPresence(me.value);
+  // Tell the database which build this account is running (shown in the Dev tab's App versions card).
+  if (me.value && !isAlertWindow) {
+    supabase.rpc("report_app_version", { v: __APP_VERSION__ }).then(({ error }) => {
+      if (error) console.error("Version report failed", error);
+    });
+  }
 }
 
 // The window opens at a sensible default size for each view, but the user can resize it.
@@ -96,6 +119,8 @@ onMounted(async () => {
     await getCurrentWindow().setMinSize(new LogicalSize(MIN_WIDTH, MIN_HEIGHT));
     // Only the main window checks for updates; the alert popup is short-lived.
     startUpdateChecks();
+    // A downloaded update installs only when the app is opened from the tray or launched again (Rust emits "app-opened").
+    void listen("app-opened", () => void installPendingUpdate());
   }
   // Only the main window starts a session; "Remember me" off means signing in again after a restart.
   if (!isAlertWindow && !shouldRemember()) await supabase.auth.signOut({ scope: "local" });
@@ -103,9 +128,22 @@ onMounted(async () => {
   offRefresh = onRefresh(() => Promise.all([
     me.value && loadProfile(me.value.id),
     loadHeaderMessage(),
+    loadTheme(),
   ]));
+  // Theme changes from a developer reach every open window immediately.
+  themeChannel = supabase.channel("app-theme")
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_theme" },
+      (payload) => setTheme(payload.new.theme_key))
+    .subscribe();
+  // A developer's "Push update" changes this row; every open app checks for the new release now.
+  if (!isAlertWindow) {
+    updateChannel = supabase.channel("app-update")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "app_update" },
+        () => void checkForUpdates())
+      .subscribe();
+  }
   const { data } = await supabase.auth.getSession();
-  await Promise.all([loadProfile(data.session?.user.id ?? null), loadHeaderMessage()]);
+  await Promise.all([loadProfile(data.session?.user.id ?? null), loadHeaderMessage(), loadTheme()]);
   loading.value = false;
   sub = supabase.auth.onAuthStateChange((_e, s) => {
     // Defer: don't await supabase calls inside the callback.
@@ -115,6 +153,8 @@ onMounted(async () => {
 onUnmounted(() => {
   offRefresh?.();
   sub?.unsubscribe();
+  if (themeChannel) void supabase.removeChannel(themeChannel);
+  if (updateChannel) void supabase.removeChannel(updateChannel);
   stopPresence();
   stopUpdateChecks();
 });
@@ -153,13 +193,16 @@ async function logout() {
 <template>
   <NotificationModal v-if="isAlertWindow && me" :me="me" />
   <div v-else-if="isAlertWindow" />
-  <div v-else class="flex h-screen w-screen flex-col overflow-hidden bg-slate-50 text-slate-900">
+  <div v-else class="relative flex h-screen w-screen flex-col overflow-hidden bg-[var(--theme-bg)] text-slate-900">
+  <!-- Decorative theme layer: sits behind the header, content and footer (those are raised with z-10) -->
+  <div v-if="themeOverlay !== 'none'" :class="`theme-overlay theme-overlay--${themeOverlay}`" aria-hidden="true" />
   <div v-if="loading" class="flex flex-1 items-center justify-center text-slate-400">Loading…</div>
   <LoginView v-else-if="!me" ref="loginView" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
     <!-- Browser-style tab strip: the active tab rises into the white toolbar below it -->
-    <header ref="header" class="flex shrink-0 items-end justify-between bg-slate-200 pr-3 pt-2">
+    <header ref="header" class="relative z-10 flex shrink-0 items-end justify-between bg-[var(--theme-header)] pr-3 pt-2">
       <div class="flex items-end self-stretch">
+        <span v-if="themeBadge" class="mb-2 ml-3 self-center text-base leading-none" aria-hidden="true">{{ themeBadge }}</span>
         <span v-if="me.role === 'sender' || me.role === 'receiver'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
         <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
         <nav v-if="me.role !== 'receiver'" class="flex items-end text-sm w-[22%] min-w-[160px] max-w-[220px] pl-3">
@@ -174,10 +217,8 @@ async function logout() {
       <div class="relative mb-1.5 flex items-center gap-1 text-sm">
         <span v-if="headerMessage?.enabled && headerMessage.message" :title="headerMessage.message"
           class="mr-1 max-w-[260px] truncate text-xs text-slate-600">{{ headerMessage.message }}</span>
-        <!-- Dev message wins; otherwise this slot shows the latest refresh status, or the update prompt for everyone. -->
-        <span v-else role="status" class="mr-1 whitespace-nowrap text-xs text-slate-500">{{ refreshStatus || "Check for updates" }}</span>
         <button class="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
-          title="Refresh everything and check for updates" aria-label="Refresh" :disabled="refreshing" @click="onRefreshClick">
+          title="Refresh everything" aria-label="Refresh" :disabled="refreshing" @click="onRefreshClick">
           <RotateCw class="h-4 w-4" :class="{ 'animate-spin': refreshing }" />
         </button>
         <button class="flex items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-slate-100" title="Account menu"
@@ -206,7 +247,7 @@ async function logout() {
       </div>
     </header>
 
-    <main id="app-main" class="relative flex min-h-0 flex-1">
+    <main id="app-main" class="relative z-10 flex min-h-0 flex-1">
       <!-- Receivers see their shout history here; new shouts still arrive in their popup window. -->
       <!-- KeepAlive: switching tabs reuses the mounted view and its data instead of re-fetching into an empty state -->
       <KeepAlive>
@@ -218,7 +259,7 @@ async function logout() {
     </main>
     <!-- Build footer spans the full window width on the People and Admin views (receivers have it in their own bar) -->
     <footer v-if="me.role !== 'receiver'"
-      class="flex shrink-0 justify-center border-t border-slate-200 bg-white px-5 py-1.5">
+      class="relative z-10 flex shrink-0 justify-center border-t border-slate-200 bg-white px-5 py-1.5">
       <BuildFooter />
     </footer>
     <ProfileModal v-if="showProfile" :me="me" @close="showProfile = false"
