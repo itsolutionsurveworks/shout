@@ -12,6 +12,12 @@ export const SIGNATURE = "Regards, vince@dev";
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.1.8",
+    date: "2026-11-13",
+    changed: ["Refreshed views and smoother UI/UX"],
+    fixed: ["Receiver improvements and general reliability fixes"],
+  },
+  {
     version: "0.1.7",
     date: "2026-11-13",
     added: [
