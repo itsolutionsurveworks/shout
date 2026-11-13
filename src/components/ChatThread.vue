@@ -117,7 +117,7 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
     </form>
 
     <!-- Overlays the whole chat (header, messages, quick shouts, custom message). -->
-    <Transition name="info">
+    <Transition name="side-panel">
       <MessageInfo v-if="infoMsg" :msg="infoMsg" :people="people" :group-members="group?.members" @close="infoKey = null" />
     </Transition>
   </div>

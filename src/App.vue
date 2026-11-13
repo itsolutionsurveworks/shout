@@ -5,7 +5,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 import { isAdminRole, roleLabel, shouldRemember, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
 import { startUpdateChecks, stopUpdateChecks } from "./lib/updater";
-import { onRefresh, refreshAll, refreshing } from "./lib/refresh";
+import { onRefresh, refreshAll, refreshing, refreshStatus } from "./lib/refresh";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
 import ReceiverView from "./views/ReceiverView.vue";
@@ -119,6 +119,14 @@ onUnmounted(() => {
   stopUpdateChecks();
 });
 
+// The dev message is hidden the moment refresh is pressed. The reload below fetches it again,
+// so it only comes back if it is still enabled.
+function onRefreshClick() {
+  if (refreshing.value) return;
+  headerMessage.value = null;
+  void refreshAll();
+}
+
 function onAvatarSaved(url: string | null) {
   if (me.value) me.value.avatar_url = url;
 }
@@ -154,7 +162,7 @@ async function logout() {
       <div class="flex items-end self-stretch">
         <span v-if="me.role === 'sender' || me.role === 'receiver'" class="mb-2.5 pl-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{{ roleLabel(me.role) }}</span>
         <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
-        <nav v-if="me.role !== 'receiver'" class="flex items-end text-sm w-[22%] min-w-[160px] max-w-[220px]">
+        <nav v-if="me.role !== 'receiver'" class="flex items-end text-sm w-[22%] min-w-[160px] max-w-[220px] pl-3">
           <button class="relative flex-1 rounded-t-lg px-3 py-2 font-medium transition-colors"
             :class="tab === 'people' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'"
             @click="tab = 'people'">People</button>
@@ -166,8 +174,10 @@ async function logout() {
       <div class="relative mb-1.5 flex items-center gap-1 text-sm">
         <span v-if="headerMessage?.enabled && headerMessage.message" :title="headerMessage.message"
           class="mr-1 max-w-[260px] truncate text-xs text-slate-600">{{ headerMessage.message }}</span>
+        <!-- Dev message wins; otherwise this slot shows the latest refresh status, or the update prompt for everyone. -->
+        <span v-else role="status" class="mr-1 whitespace-nowrap text-xs text-slate-500">{{ refreshStatus || "Check for updates" }}</span>
         <button class="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
-          title="Refresh everything" aria-label="Refresh" :disabled="refreshing" @click="refreshAll()">
+          title="Refresh everything and check for updates" aria-label="Refresh" :disabled="refreshing" @click="onRefreshClick">
           <RotateCw class="h-4 w-4" :class="{ 'animate-spin': refreshing }" />
         </button>
         <button class="flex items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-slate-100" title="Account menu"
@@ -196,7 +206,7 @@ async function logout() {
       </div>
     </header>
 
-    <main class="flex min-h-0 flex-1">
+    <main id="app-main" class="relative flex min-h-0 flex-1">
       <!-- Receivers see their shout history here; new shouts still arrive in their popup window. -->
       <!-- KeepAlive: switching tabs reuses the mounted view and its data instead of re-fetching into an empty state -->
       <KeepAlive>

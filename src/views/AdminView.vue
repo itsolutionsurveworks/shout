@@ -5,11 +5,11 @@ import { supabase, type HeaderMessage, type Profile, type Role } from "../lib/su
 import DevPanel from "../components/DevPanel.vue";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
-import { chatTime } from "../lib/thread";
-import { receiptLabel, receiptOf } from "../lib/receipts";
+import { aggregateReceipt, receiptLabel, type Receipt } from "../lib/receipts";
 import ReceiptIcon from "../components/ReceiptIcon.vue";
 import UserAvatar from "../components/UserAvatar.vue";
 import ScrollHint from "../components/ScrollHint.vue";
+import AuditInfo from "../components/AuditInfo.vue";
 
 // isDev: the signed-in user has the developer role, so the Dev section is listed.
 const props = defineProps<{ isDev: boolean; headerMessage: HeaderMessage | null }>();
@@ -46,24 +46,68 @@ function closeStatusMenuOnOutside(e: PointerEvent) {
 }
 
 async function load() {
-  const [u, g, l] = await Promise.all([
+  const [u, g] = await Promise.all([
     supabase.from("profiles").select("*").order("full_name"),
     supabase.from("groups").select("id, name, group_members(user_id)").order("name"),
-    supabase
-      .from("notifications")
-      .select("id, message, status, created_at, acknowledged_at, sender:sender_id(full_name), recipient:recipient_id(full_name)")
-      .order("created_at", { ascending: false })
-      .limit(200),
   ]);
   users.value = (u.data ?? []) as Profile[];
   groups.value = (g.data ?? []).map((x: any) => ({
     id: x.id, name: x.name, members: x.group_members.map((m: any) => m.user_id),
   }));
-  logs.value = l.data ?? [];
   if (!groups.value.some((g) => g.id === selectedGroupId.value)) {
     selectedGroupId.value = groups.value[0]?.id ?? null;
   }
+  await loadLogs();
 }
+
+// Audit log: the newest LOG_LIMIT rows when the search box is empty; otherwise a database-wide
+// search over every message (plus people and group names), capped at SEARCH_LIMIT rows.
+// Entries = audit lines (one per send). Rows are fetched in pages until enough entries exist:
+// a group shout is one row per recipient, so 200 entries can need far more than 200 rows.
+const LOG_ENTRIES = 200;
+const ROW_PAGE = 1000;
+const MAX_SEARCH_ROWS = 20000; // safety cap for database-wide searches
+let logReq = 0;
+const batchKey = (n: any) => n.batch_id ?? n.id;
+async function loadLogs() {
+  const my = ++logReq;
+  const term = query.value.trim();
+  let filter: string | null = null;
+  if (term) {
+    const lower = term.toLowerCase();
+    // Values inside an or() filter are quoted; escape backslashes and quotes.
+    const esc = (s: string) => s.replace(/[\\"]/g, "\\$&");
+    const people = users.value.filter((u) => u.full_name.toLowerCase().includes(lower)).map((u) => u.id);
+    const grps = groups.value.filter((g) => g.name.toLowerCase().includes(lower)).map((g) => g.id);
+    const clauses = [`message.ilike."*${esc(term)}*"`];
+    if (people.length) clauses.push(`sender_id.in.(${people.join(",")})`, `recipient_id.in.(${people.join(",")})`);
+    if (grps.length) clauses.push(`group_id.in.(${grps.join(",")})`);
+    filter = clauses.join(",");
+  }
+  const rows: any[] = [];
+  for (let from = 0; ; from += ROW_PAGE) {
+    let req = supabase
+      .from("notifications")
+      .select("id, batch_id, group_id, recipient_id, message, status, created_at, acknowledged_at, sender:sender_id(full_name), recipient:recipient_id(full_name)")
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, from + ROW_PAGE - 1);
+    if (filter) req = req.or(filter);
+    const { data, error } = await req;
+    if (my !== logReq) return; // a newer search has started
+    if (error) { err.value = error.message; return; }
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < ROW_PAGE) break;                     // no more rows
+    if (!term && new Set(rows.map(batchKey)).size > LOG_ENTRIES) break; // enough entries; one extra so the 200th is complete
+    if (term && rows.length >= MAX_SEARCH_ROWS) break;
+  }
+  logs.value = rows;
+}
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(query, () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadLogs, 300);
+});
 
 async function updateUser(u: Profile, patch: Partial<{ full_name: string; role: Role; department: string }>) {
   const { error } = await supabase.from("profiles").update(patch).eq("id", u.id);
@@ -108,12 +152,6 @@ async function toggleMember(groupId: string, userId: string, isMember: boolean) 
     : await q.insert({ group_id: groupId, user_id: userId });
   err.value = error?.message ?? "";
   load();
-}
-
-function latency(n: any) {
-  if (!n.acknowledged_at) return "—";
-  const s = (Date.parse(n.acknowledged_at) - Date.parse(n.created_at)) / 1000;
-  return s < 60 ? `${s.toFixed(0)}s` : `${(s / 60).toFixed(1)}m`;
 }
 
 
@@ -164,17 +202,87 @@ const groupPeople = computed(() => {
       return a.full_name.localeCompare(b.full_name);
     });
 });
-const shownLogs = computed(() =>
-  logs.value.filter((n) => !q.value || (n.message ?? "").toLowerCase().includes(q.value)
-    || (n.sender?.full_name ?? "").toLowerCase().includes(q.value) || (n.recipient?.full_name ?? "").toLowerCase().includes(q.value)));
+// One audit line per send: rows sharing a batch_id (a group shout) collapse into a single entry.
+interface AuditRow {
+  key: string;
+  created_at: string;
+  sender: any;
+  to: string;
+  toSub: string | null;
+  message: string;
+  receipt: Receipt;
+  latency: string;
+  // Group shouts only: the raw per-recipient rows and the group, for the "Show" panel.
+  group: { name: string; members: string[] } | null;
+  rows: any[];
+}
+const auditInfoKey = ref<string | null>(null);
+const auditInfoRow = computed(() => auditRows.value.find((r) => r.key === auditInfoKey.value) ?? null);
+// Time cell: today = time; yesterday = "Yesterday" over the time; anything older = date over the time.
+function auditTime(iso: string): { top: string; bottom: string | null } {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const today = new Date().toDateString();
+  if (d.toDateString() === today) return { top: time, bottom: null };
+  const yesterday = new Date(Date.now() - 864e5).toDateString();
+  if (d.toDateString() === yesterday) return { top: "Yesterday", bottom: time };
+  return { top: d.toLocaleDateString([], { day: "numeric", month: "short", year: "2-digit" }), bottom: time };
+}
+function latencyOf(rs: any[]): string {
+  const acked = rs.filter((n) => n.acknowledged_at);
+  if (!acked.length) return "—";
+  if (acked.length < rs.length) return `${acked.length}/${rs.length} acked`;
+  const last = Math.max(...acked.map((n) => Date.parse(n.acknowledged_at)));
+  const first = Math.min(...rs.map((n) => Date.parse(n.created_at)));
+  const s = (last - first) / 1000;
+  return s < 60 ? `${s.toFixed(0)}s` : `${(s / 60).toFixed(1)}m`;
+}
+const auditRows = computed<AuditRow[]>(() => {
+  const by = new Map<string, any[]>();
+  for (const n of logs.value) {
+    const k = n.batch_id ?? n.id;
+    (by.get(k) ?? by.set(k, []).get(k)!).push(n);
+  }
+  const entries = [...by.entries()];
+  // Default view: the newest LOG_ENTRIES entries. Searches show every match.
+  const shown = query.value.trim() ? entries : entries.slice(0, LOG_ENTRIES);
+  return shown.map(([key, rs]) => {
+    const head = rs[0];
+    const group = head.group_id ? groups.value.find((g) => g.id === head.group_id) : undefined;
+    const count = rs.length;
+    let to: string, toSub: string | null = null;
+    if (group) { to = `→ ${group.name}`; toSub = `${count} ${count === 1 ? "person" : "people"}`; }
+    else if (count > 1) { to = `→ ${count} people`; }
+    else to = `→ ${head.recipient?.full_name ?? ""}`;
+    return {
+      key,
+      created_at: rs.reduce((min, n) => (Date.parse(n.created_at) < Date.parse(min) ? n.created_at : min), head.created_at),
+      sender: head.sender,
+      to,
+      toSub,
+      message: head.message,
+      receipt: aggregateReceipt(rs.map((n) => n.status)) as Receipt,
+      latency: latencyOf(rs),
+      group: group ? { name: group.name, members: group.members } : null,
+      rows: rs,
+    };
+  });
+});
 
 // Audit log pagination: a new search starts on page 1; live reloads keep the page but clamp it.
 const PAGE_SIZE = 20;
 const page = ref(0);
-const pageCount = computed(() => Math.max(1, Math.ceil(shownLogs.value.length / PAGE_SIZE)));
-const pagedLogs = computed(() => shownLogs.value.slice(page.value * PAGE_SIZE, (page.value + 1) * PAGE_SIZE));
-watch(q, () => { page.value = 0; });
+const pageCount = computed(() => Math.max(1, Math.ceil(auditRows.value.length / PAGE_SIZE)));
+const pagedLogs = computed(() => auditRows.value.slice(page.value * PAGE_SIZE, (page.value + 1) * PAGE_SIZE));
+watch(q, () => { page.value = 0; usersPage.value = 0; });
 watch(pageCount, (c) => { if (page.value > c - 1) page.value = c - 1; });
+
+// Users pagination: same rules as the audit log, with its own page so the two tabs don't share one.
+const usersPage = ref(0);
+const usersPageCount = computed(() => Math.max(1, Math.ceil(shownUsers.value.length / PAGE_SIZE)));
+const pagedUsers = computed(() => shownUsers.value.slice(usersPage.value * PAGE_SIZE, (usersPage.value + 1) * PAGE_SIZE));
+watch(statusFilter, () => { usersPage.value = 0; });
+watch(usersPageCount, (c) => { if (usersPage.value > c - 1) usersPage.value = c - 1; });
 
 const nav = computed(() => [
   { key: "users" as const, label: "Users", icon: UserRound, count: users.value.length },
@@ -246,7 +354,7 @@ onUnmounted(() => {
             class="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
         </div>
       </div>
-      <nav class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto px-2 py-1.5">
+      <nav class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto px-4 py-1.5">
         <button v-for="n in nav" :key="n.key"
           class="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors"
           :class="section === n.key
@@ -270,7 +378,8 @@ onUnmounted(() => {
 
         <!-- Users -->
         <template v-if="section === 'users'">
-          <ScrollHint>
+          <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
+          <ScrollHint :card="false">
             <table class="w-full table-fixed text-sm">
               <thead class="sticky top-0 z-10 bg-white">
                 <tr class="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
@@ -301,8 +410,8 @@ onUnmounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(u, i) in shownUsers" :key="u.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td class="px-4 py-2.5 text-xs tabular-nums text-slate-400">{{ i + 1 }}</td>
+                <tr v-for="(u, i) in pagedUsers" :key="u.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                  <td class="px-4 py-2.5 text-xs tabular-nums text-slate-400">{{ usersPage * PAGE_SIZE + i + 1 }}</td>
                   <td class="px-4 py-2.5">
                     <span class="flex items-center gap-2.5">
                       <UserAvatar :user="u" size-class="h-8 w-8" />
@@ -341,6 +450,21 @@ onUnmounted(() => {
             </table>
             <p v-if="!shownUsers.length" class="p-6 text-center text-sm text-slate-400">No people found</p>
           </ScrollHint>
+          <div v-if="shownUsers.length > PAGE_SIZE" class="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
+            <span class="tabular-nums">{{ usersPage * PAGE_SIZE + 1 }}–{{ Math.min((usersPage + 1) * PAGE_SIZE, shownUsers.length) }} of {{ shownUsers.length }}</span>
+            <div class="flex items-center gap-1">
+              <button :disabled="usersPage === 0" title="Previous page" aria-label="Previous page" @click="usersPage--"
+                class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
+                <ChevronLeft class="h-4 w-4" />
+              </button>
+              <span class="px-2 tabular-nums">Page {{ usersPage + 1 }} of {{ usersPageCount }}</span>
+              <button :disabled="usersPage >= usersPageCount - 1" title="Next page" aria-label="Next page" @click="usersPage++"
+                class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
+                <ChevronRight class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          </div>
         </template>
 
         <!-- Groups -->
@@ -426,28 +550,44 @@ onUnmounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(n, i) in pagedLogs" :key="n.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                <tr v-for="(n, i) in pagedLogs" :key="n.key" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td class="px-2 py-2.5 text-[10px] tabular-nums text-slate-400">{{ page * PAGE_SIZE + i + 1 }}</td>
-                  <td class="truncate px-2 py-2.5 text-[10px] text-slate-500">{{ chatTime(n.created_at) }}</td>
+                  <td class="px-2 py-2.5 text-[10px] text-slate-500">
+                    <span class="block truncate">{{ auditTime(n.created_at).top }}</span>
+                    <span v-if="auditTime(n.created_at).bottom" class="block truncate">{{ auditTime(n.created_at).bottom }}</span>
+                  </td>
                   <td class="px-2 py-2.5 text-xs">
                     <span class="block truncate font-medium text-slate-900" :title="n.sender?.full_name">{{ n.sender?.full_name }}</span>
-                    <span class="block truncate text-slate-500" :title="n.recipient?.full_name">→ {{ n.recipient?.full_name }}</span>
+                    <span class="block truncate text-slate-500" :title="n.to">{{ n.to }}</span>
+                    <span v-if="n.toSub" class="block truncate text-[10px] text-slate-400">{{ n.toSub }}</span>
                   </td>
                   <td class="truncate px-2 py-2.5 text-slate-700" :title="n.message">{{ n.message }}</td>
                   <td class="px-2 py-2.5">
-                    <span class="flex items-center gap-1.5 text-[11px]" :class="receiptOf(n.status) === 'seen' ? 'text-sky-600' : 'text-slate-500'">
-                      <ReceiptIcon :receipt="receiptOf(n.status)" />
-                      {{ receiptLabel[receiptOf(n.status)] }}
+                    <span class="flex items-center gap-1.5 text-[11px]" :class="n.receipt === 'seen' ? 'text-sky-600' : 'text-slate-500'">
+                      <ReceiptIcon :receipt="n.receipt" />
+                      {{ receiptLabel[n.receipt] }}
                     </span>
                   </td>
-                  <td class="truncate px-2 py-2.5 text-xs text-slate-500">{{ latency(n) }}</td>
+                  <td class="truncate px-2 py-2.5 text-xs text-slate-500">
+                    <button v-if="n.group" class="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+                      title="Show each member's latency" @click="auditInfoKey = n.key">Show</button>
+                    <template v-else>{{ n.latency }}</template>
+                  </td>
                 </tr>
               </tbody>
             </table>
-            <p v-if="!shownLogs.length" class="p-6 text-center text-sm text-slate-400">No shouts found</p>
+            <p v-if="!auditRows.length" class="p-6 text-center text-sm text-slate-400">{{ query.trim() ? "No shouts match" : "No shouts found" }}</p>
           </ScrollHint>
-          <div v-if="shownLogs.length > PAGE_SIZE" class="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
-            <span class="tabular-nums">{{ page * PAGE_SIZE + 1 }}–{{ Math.min((page + 1) * PAGE_SIZE, shownLogs.length) }} of {{ shownLogs.length }}</span>
+          <!-- Teleported to the app's main area so the panel spans the full height between the app header and footer, not just this card. -->
+          <Teleport to="#app-main">
+            <Transition name="side-panel">
+              <AuditInfo v-if="auditInfoRow?.group" :message="auditInfoRow.message" :sent-at="auditInfoRow.created_at"
+                :rows="auditInfoRow.rows" :members="auditInfoRow.group.members" :people="users" :group-name="auditInfoRow.group.name"
+                @close="auditInfoKey = null" />
+            </Transition>
+          </Teleport>
+          <div v-if="auditRows.length > PAGE_SIZE" class="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
+            <span class="tabular-nums">{{ page * PAGE_SIZE + 1 }}–{{ Math.min((page + 1) * PAGE_SIZE, auditRows.length) }} of {{ auditRows.length }}</span>
             <div class="flex items-center gap-1">
               <button :disabled="page === 0" title="Previous page" aria-label="Previous page" @click="page--"
                 class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
