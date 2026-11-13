@@ -115,10 +115,6 @@ onUnmounted(() => {
     </div>
 
     <div class="flex items-center justify-between gap-3 bg-slate-100 px-4 py-2.5 text-xs text-slate-500">
-      <span class="inline-flex items-center gap-1.5">
-        <span class="h-2 w-2 rounded-full bg-emerald-500" />
-        New shouts pop up on your screen automatically.
-      </span>
       <BuildFooter />
     </div>
 
