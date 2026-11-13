@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { Check, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-vue-next";
+import { Check, Pencil, Plus, Trash2, X } from "lucide-vue-next";
 import { supabase, type Profile, type QuickShout } from "../lib/supabase";
 import { onRefresh } from "../lib/refresh";
 
@@ -16,7 +16,6 @@ const editingId = ref<string | null>(null);
 const editText = ref("");
 const loaded = ref(false);
 const manage = ref(false);
-const collapsed = ref(false);
 
 async function load() {
   const { data, error } = await supabase
@@ -88,20 +87,15 @@ onUnmounted(() => offRefresh?.());
 
 <template>
   <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-    <header class="flex items-center justify-between" :class="collapsed ? '' : 'mb-3'">
-      <button class="flex items-center gap-1.5 text-left" :aria-expanded="!collapsed"
-        :title="collapsed ? 'Expand quick shouts' : 'Collapse quick shouts'" @click="collapsed = !collapsed">
-        <ChevronDown class="h-4 w-4 text-slate-500 transition-transform" :class="collapsed && '-rotate-90'" />
-        <h3 class="text-sm font-semibold text-slate-900">Quick shouts</h3>
-      </button>
-      <button v-show="!collapsed" class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+    <header class="mb-3 flex items-center justify-between">
+      <h3 class="text-sm font-semibold text-slate-900">Quick shouts</h3>
+      <button class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
         :class="manage ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'"
         @click="manage = !manage">
         {{ manage ? "Done" : "Manage" }}
       </button>
     </header>
 
-    <div v-show="!collapsed">
     <p v-if="loaded && !items.length" class="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-400">
       No quick shouts yet. Click Manage to add one.
     </p>
@@ -148,7 +142,6 @@ onUnmounted(() => offRefresh?.());
         </button>
       </form>
     </template>
-    </div>
 
     <footer v-if="$slots.footer" class="mt-3 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
       <slot name="footer" />

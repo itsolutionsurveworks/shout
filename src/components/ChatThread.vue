@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { Send, Users } from "lucide-vue-next";
+import { Send, Users, Zap } from "lucide-vue-next";
 import type { Notification, Profile } from "../lib/supabase";
 import { dayLabel, type ChatGroup, type ChatMessage } from "../lib/thread";
 import { replyLabel } from "../lib/receipts";
@@ -22,6 +22,7 @@ const props = defineProps<{
 const emit = defineEmits<{ send: [text: string]; error: [m: string] }>();
 
 const draft = ref("");
+const showQuick = ref(false);
 const infoKey = ref<string | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 const infoMsg = computed(() => props.messages.find((m) => m.key === infoKey.value) ?? null);
@@ -97,24 +98,32 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
       </div>
     </div>
 
-    <!-- Quick shouts are the main way to message: always visible, one tap to send. -->
-    <div v-if="canSend" class="bg-slate-50 px-3 py-2.5">
-      <QuickShouts :me="me" @send="(t) => emit('send', t)" @error="(m) => emit('error', m)" />
+    <div v-if="canSend" class="relative">
+      <!-- Quick shouts: floating card above the input bar, toggled by the Zap button. -->
+      <div v-show="showQuick" class="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-xl shadow-xl">
+        <QuickShouts :me="me" @send="(t) => emit('send', t)" @error="(m) => emit('error', m)" />
+      </div>
+
+      <!-- Input bar: quick shout toggle on the left, custom message, send. -->
+      <form class="flex items-center gap-2 bg-slate-100 px-3 py-2" @submit.prevent="submit">
+        <button type="button" :aria-expanded="showQuick" aria-label="Quick shouts"
+          :title="showQuick ? 'Hide quick shouts' : 'Show quick shouts'"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
+          :class="showQuick ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
+          @click="showQuick = !showQuick">
+          <Zap class="h-4 w-4" />
+        </button>
+        <input v-model="draft" maxlength="500" :disabled="!canSend" placeholder="Type a custom message"
+          class="flex-1 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none disabled:bg-slate-50" />
+        <button :disabled="!draft.trim() || !canSend"
+          class="rounded-full bg-emerald-600 p-2.5 text-white hover:bg-emerald-700 disabled:opacity-40" title="Send">
+          <Send class="h-4 w-4" />
+        </button>
+      </form>
     </div>
     <div v-else class="bg-slate-50 px-4 py-3 text-center text-xs text-slate-600">
       Nobody here is online right now, so shouts can't be sent.
     </div>
-
-    <!-- Custom message is secondary: tucked behind a toggle. -->
-    <!-- Custom message is always visible, next to the quick shouts. -->
-    <form v-if="canSend" class="flex items-center gap-2 bg-slate-100 px-3 py-2" @submit.prevent="submit">
-      <input v-model="draft" maxlength="500" :disabled="!canSend" placeholder="Type a custom message"
-        class="flex-1 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none disabled:bg-slate-50" />
-      <button :disabled="!draft.trim() || !canSend"
-        class="rounded-full bg-emerald-600 p-2.5 text-white hover:bg-emerald-700 disabled:opacity-40" title="Send">
-        <Send class="h-4 w-4" />
-      </button>
-    </form>
 
     <!-- Overlays the whole chat (header, messages, quick shouts, custom message). -->
     <Transition name="side-panel">
