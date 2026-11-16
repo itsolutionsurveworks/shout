@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { Send, Smile, Users, Zap } from "lucide-vue-next";
+import { MessageCircle, Send, Smile, Users } from "lucide-vue-next";
 import EmojiGifPicker from "./EmojiGifPicker.vue";
 import type { Profile } from "../lib/supabase";
 import { dayLabel, type ChatGroup, type ChatMessage } from "../lib/thread";
@@ -74,6 +74,8 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
     <!-- Header and chat wallpaper. The info panel is confined to this area, so it covers the
          header but stops above the quick shouts. -->
     <div class="relative flex min-h-0 flex-1 flex-col">
+      <!-- Light backdrop over the thread while the emoji/GIF picker is open; click to dismiss. -->
+      <div v-if="showPicker" class="absolute inset-0 z-10 bg-slate-900/10" @click="showPicker = false"></div>
       <header class="flex items-center gap-3 bg-slate-100 px-4 py-2.5">
         <UserAvatar v-if="user" :user="user" size-class="h-10 w-10" />
         <span v-else class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Users class="h-5 w-5" /></span>
@@ -100,16 +102,20 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
 
     <div v-if="canSend" class="relative">
       <!-- Quick shouts: floating card above the input bar, toggled by the Zap button. -->
-      <div v-show="showQuick" class="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-xl shadow-xl">
-        <QuickShouts :me="me" @send="(t) => emit('send', t)" @error="(m) => emit('error', m)" />
-      </div>
+      <Transition name="picker-rise">
+        <div v-show="showQuick" class="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-xl shadow-xl">
+          <QuickShouts :me="me" @send="(t) => emit('send', t)" @error="(m) => emit('error', m)" />
+        </div>
+      </Transition>
 
       <!-- Input bar: quick shout toggle on the left, custom message, send. -->
-      <div v-show="showPicker" class="absolute bottom-full left-3 right-3 z-20 mb-2">
-        <EmojiGifPicker @emoji="(e) => (draft += e)" @gif="sendGif" />
-      </div>
+      <Transition name="picker-rise">
+        <div v-show="showPicker" class="absolute bottom-full left-3 right-3 z-20 mb-2">
+          <EmojiGifPicker @emoji="(e) => (draft += e)" @gif="sendGif" />
+        </div>
+      </Transition>
 
-      <form class="flex items-center gap-2 bg-slate-100 px-3 py-2" @submit.prevent="submit">
+      <form class="relative z-30 flex items-center gap-2 bg-slate-100 px-3 py-2" @submit.prevent="submit">
         <button type="button" aria-label="Emoji and GIFs" title="Emoji and GIFs"
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
           :class="showPicker ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
@@ -121,7 +127,7 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
           :class="showQuick ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
           @click="showQuick = !showQuick; showPicker = false">
-          <Zap class="h-4 w-4" />
+          <MessageCircle class="h-4 w-4" />
         </button>
         <input v-model="draft" maxlength="500" :disabled="!canSend" placeholder="Type a custom message"
           class="flex-1 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none disabled:bg-slate-50" />
@@ -146,3 +152,8 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
     </Transition>
   </div>
 </template>
+
+<style>
+.picker-rise-enter-active, .picker-rise-leave-active { transition: transform 0.25s ease, opacity 0.25s ease; }
+.picker-rise-enter-from, .picker-rise-leave-to { transform: translateY(100%); opacity: 0; }
+</style>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { Check, Pencil, Plus, Trash2, X } from "lucide-vue-next";
+import { Check, Pencil, Plus, Settings2, Trash2, X } from "lucide-vue-next";
 import { supabase, type Profile, type QuickShout } from "../lib/supabase";
 import { onRefresh } from "../lib/refresh";
 import { cached } from "../lib/cache";
@@ -104,28 +104,29 @@ onUnmounted(() => {
 
 <template>
   <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-    <header class="mb-3 flex items-center justify-between">
-      <h3 class="text-sm font-semibold text-slate-900">Quick shouts</h3>
-      <button class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-        :class="manage ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'"
-        @click="manage = !manage">
-        {{ manage ? "Done" : "Manage" }}
-      </button>
-    </header>
-
-    <p v-if="loaded && !items.length" class="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-400">
-      No quick shouts yet. Click Manage to add one.
+    <p v-if="loaded && !items.length && !manage" class="mb-3 rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-400">
+      No quick shouts yet. Click the settings icon to add one.
     </p>
 
-    <!-- Send mode: one-tap chips -->
-    <div v-if="!manage" class="flex max-h-28 flex-wrap gap-1.5 overflow-auto">
+    <!-- Send mode: "Quick Shouts:" label, one-tap chips, and the manage icon after the last chip -->
+    <div v-if="!manage" class="mb-1 flex max-h-28 flex-wrap items-center gap-1.5 overflow-auto">
+      <h3 class="shrink-0 text-sm font-semibold text-slate-900">Quick Shouts:</h3>
       <button v-for="q in items" :key="q.id"
         class="max-w-full truncate rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
         :disabled="disabled || cooling" :title="q.text" @click="sendQuick(q.text)">{{ q.text }}</button>
+      <button title="Manage quick shouts" aria-label="Manage quick shouts"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+        @click="manage = true"><Settings2 class="h-4 w-4" /></button>
     </div>
 
     <!-- Manage mode: edit / delete / add -->
     <template v-else>
+      <header class="mb-3 flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-slate-900">Quick Shouts:</h3>
+        <button title="Done" aria-label="Done"
+          class="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
+          @click="manage = false"><Check class="h-4 w-4" /></button>
+      </header>
       <ul class="flex max-h-40 flex-col gap-1 overflow-auto">
         <li v-for="q in items" :key="q.id" class="flex items-center gap-1.5">
           <template v-if="editingId === q.id">
