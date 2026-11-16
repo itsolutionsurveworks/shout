@@ -19,6 +19,18 @@ const editText = ref("");
 const loaded = ref(items.value.length > 0);
 const manage = ref(false);
 
+// One quick shout per 5 seconds: all chips are disabled until the cooldown ends.
+const QUICK_COOLDOWN_MS = 5000;
+const cooling = ref(false);
+let cooldownTimer: ReturnType<typeof setTimeout> | undefined;
+function sendQuick(text: string) {
+  if (props.disabled || cooling.value) return;
+  cooling.value = true;
+  emit("send", text);
+  clearTimeout(cooldownTimer);
+  cooldownTimer = setTimeout(() => (cooling.value = false), QUICK_COOLDOWN_MS);
+}
+
 async function load() {
   const { data, error } = await supabase
     .from("quick_shouts")
@@ -84,7 +96,10 @@ onMounted(() => {
   load();
   offRefresh = onRefresh(load);
 });
-onUnmounted(() => offRefresh?.());
+onUnmounted(() => {
+  offRefresh?.();
+  clearTimeout(cooldownTimer);
+});
 </script>
 
 <template>
@@ -106,7 +121,7 @@ onUnmounted(() => offRefresh?.());
     <div v-if="!manage" class="flex max-h-28 flex-wrap gap-1.5 overflow-auto">
       <button v-for="q in items" :key="q.id"
         class="max-w-full truncate rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-        :disabled="disabled" :title="q.text" @click="emit('send', q.text)">{{ q.text }}</button>
+        :disabled="disabled || cooling" :title="q.text" @click="sendQuick(q.text)">{{ q.text }}</button>
     </div>
 
     <!-- Manage mode: edit / delete / add -->

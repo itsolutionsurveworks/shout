@@ -11,6 +11,8 @@ export const refreshing = ref(false);
 export type RefreshState = "fetching" | "ok" | "error";
 export const refreshState = ref<RefreshState>("ok");
 export const refreshedAt = ref<Date | null>(null);
+// What the running refresh is doing right now, e.g. "Fetching profile and header message…". Shown while fetching.
+export const refreshStep = ref("");
 
 export function onRefresh(fn: RefreshHandler): () => void {
   handlers.add(fn);

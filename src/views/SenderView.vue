@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, toRef } from "vue";
-import { MessageCircle } from "lucide-vue-next";
+import { MessageCircle, ShieldAlert } from "lucide-vue-next";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
@@ -18,6 +18,7 @@ const groups = cached<ChatGroup[]>(`groups:${props.me.id}`, []);
 const canUseGroups = props.me.role !== "sender";
 const target = ref<ChatTarget | null>(null);
 const toast = ref("");
+const toastSpam = ref(false);
 const thread = useThread(toRef(() => props.me.id));
 
 async function load() {
@@ -63,6 +64,8 @@ async function send(message: string) {
     .insert(list.map((u) => ({ sender_id: props.me.id, recipient_id: u.id, message: text, batch_id, group_id })))
     .select();
   if (error) {
+    // Rate limit from supabase/shout_rate_limit.sql: lasts as long as the 5-second window.
+    if (error.message.includes("Spam Detected")) return showToast("Spam Detected", { spam: true, ms: 5000 });
     const hint = error.code === "42501" ? " (session expired? sign out and back in)" : "";
     return showToast(`Failed: ${error.message}${hint}`);
   }
@@ -70,10 +73,11 @@ async function send(message: string) {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
-function showToast(t: string) {
+function showToast(t: string, opts: { spam?: boolean; ms?: number } = {}) {
   toast.value = t;
+  toastSpam.value = !!opts.spam;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ""), 4000);
+  toastTimer = setTimeout(() => (toast.value = ""), opts.ms ?? 4000);
 }
 
 // Refresh button: reload people, groups and sent history (KeepAlive: only while shown).
@@ -108,8 +112,10 @@ onUnmounted(() => {
       <p class="mt-1 max-w-xs text-sm">Pick a person{{ canUseGroups ? " or group" : "" }} to send a shout and see when it's delivered and seen.</p>
     </section>
 
-    <div v-if="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm text-white shadow-lg">
-      {{ toast }}
+    <div v-if="toast" class="fixed bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-lg px-4 py-2.5 text-sm leading-none text-white shadow-lg"
+      :class="toastSpam ? 'bg-amber-500' : 'bg-slate-900'" role="status">
+      <ShieldAlert v-if="toastSpam" class="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span>{{ toast }}</span>
     </div>
   </div>
 </template>

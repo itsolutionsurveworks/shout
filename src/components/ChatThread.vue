@@ -2,14 +2,13 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { Send, Smile, Users, Zap } from "lucide-vue-next";
 import EmojiGifPicker from "./EmojiGifPicker.vue";
-import type { Notification, Profile } from "../lib/supabase";
+import type { Profile } from "../lib/supabase";
 import { dayLabel, type ChatGroup, type ChatMessage } from "../lib/thread";
-import { replyLabel } from "../lib/receipts";
-import ReplyBubble from "./ReplyBubble.vue";
 import UserAvatar from "./UserAvatar.vue";
 import MessageBubble from "./MessageBubble.vue";
 import MessageInfo from "./MessageInfo.vue";
 import QuickShouts from "./QuickShouts.vue";
+import GroupMembersPanel from "./GroupMembersPanel.vue";
 
 const props = defineProps<{
   me: Profile;
@@ -26,6 +25,7 @@ const draft = ref("");
 const showQuick = ref(false);
 const showPicker = ref(false);
 const infoKey = ref<string | null>(null);
+const showMembers = ref(false);
 const scroller = ref<HTMLElement | null>(null);
 const infoMsg = computed(() => props.messages.find((m) => m.key === infoKey.value) ?? null);
 
@@ -35,24 +35,15 @@ const subtitle = computed(() =>
     ? props.online.has(props.user.id) ? "online" : "offline · shouts reach online people only"
     : `${memberOnline.value} of ${props.group?.members.length ?? 0} online`);
 
-// Timeline: my messages plus each recipient's reply, ordered by time, with a date
-// separator whenever the day changes.
-type Entry = { id: string; at: string; m?: ChatMessage; reply?: Notification };
+// Timeline: every message in the conversation (sent and received), oldest first, with a
+// date separator whenever the day changes.
 const items = computed(() => {
-  const entries: Entry[] = [];
-  for (const m of props.messages) {
-    entries.push({ id: m.key, at: m.created_at, m });
-    for (const r of m.rows) {
-      if (replyLabel(r.status)) entries.push({ id: `r-${r.id}`, at: r.acknowledged_at ?? r.delivered_at ?? r.created_at, reply: r });
-    }
-  }
-  entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   let last = "";
-  return entries.map((e) => {
-    const day = new Date(e.at).toDateString();
-    const sep = day !== last ? dayLabel(e.at) : null;
+  return props.messages.map((m) => {
+    const day = new Date(m.created_at).toDateString();
+    const sep = day !== last ? dayLabel(m.created_at) : null;
     last = day;
-    return { e, sep };
+    return { m, sep };
   });
 });
 const nameOf = (id: string) => props.people.find((p) => p.id === id)?.full_name ?? "Someone";
@@ -75,7 +66,7 @@ function toBottom() {
 // Follow the whole timeline, not just my messages: new sends, incoming replies and the
 // initial history load all change the entry count, so the latest item stays in view.
 watch(() => items.value.length, toBottom);
-watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toBottom(); }, { immediate: true });
+watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; showMembers.value = false; toBottom(); }, { immediate: true });
 </script>
 
 <template>
@@ -88,7 +79,9 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
         <span v-else class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Users class="h-5 w-5" /></span>
         <div class="min-w-0">
           <h2 class="truncate font-medium leading-tight">{{ user?.full_name ?? group?.name }}</h2>
-          <p class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
+          <button v-if="group && !user" type="button" class="text-left text-xs text-emerald-600 hover:underline"
+            title="View members" @click="showMembers = true">{{ subtitle }}</button>
+          <p v-else class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
         </div>
       </header>
 
@@ -96,12 +89,11 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
         <p v-if="!items.length" class="mx-auto mt-8 w-fit rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-slate-600 shadow-sm">
           No shouts yet. Tap a quick shout below to send it.
         </p>
-        <template v-for="{ e, sep } in items" :key="e.id">
+        <template v-for="{ m, sep } in items" :key="m.key">
           <div v-if="sep" class="flex justify-center py-1">
             <span class="rounded-lg bg-white/90 px-3 py-1 text-2xs font-medium uppercase text-slate-500 shadow-sm">{{ sep }}</span>
           </div>
-          <MessageBubble v-if="e.m" :msg="e.m" @info="infoKey = e.m.key" />
-          <ReplyBubble v-else-if="e.reply" :row="e.reply" :name="nameOf(e.reply.recipient_id)" :show-name="!!group" />
+          <MessageBubble :msg="m" :sender-name="!m.mine && group ? nameOf(m.sender_id) : ''" @info="infoKey = m.key" />
         </template>
       </div>
     </div>
@@ -142,6 +134,11 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; toB
     <div v-else class="bg-slate-50 px-4 py-3 text-center text-xs text-slate-600">
       Nobody here is online right now, so shouts can't be sent.
     </div>
+
+    <!-- Group members, split into online and offline. -->
+    <Transition name="side-panel">
+      <GroupMembersPanel v-if="showMembers && group" :group="group" :me="me" :people="people" :online="online" @close="showMembers = false" />
+    </Transition>
 
     <!-- Overlays the whole chat (header, messages, quick shouts, custom message). -->
     <Transition name="side-panel">

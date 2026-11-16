@@ -9,6 +9,8 @@ export interface ChatMessage {
   message: string;
   created_at: string;
   group_id: string | null;
+  sender_id: string;
+  mine: boolean;
   rows: Notification[];
   receipt: Receipt | undefined;
 }
@@ -30,7 +32,7 @@ export function useThread(meId: Ref<string> | string) {
     const { data, error } = await supabase
       .from("notifications")
       .select("*")
-      .eq("sender_id", id())
+      .or(`sender_id.eq.${id()},recipient_id.eq.${id()}`)
       .order("created_at", { ascending: false })
       .limit(500);
     // On failure keep the rows we already show (the cached copy) instead of blanking them.
@@ -53,6 +55,8 @@ export function useThread(meId: Ref<string> | string) {
         message: rs[0].message,
         created_at: rs[0].created_at,
         group_id: rs[0].group_id,
+        sender_id: rs[0].sender_id,
+        mine: rs[0].sender_id === id(),
         rows: rs,
         receipt: aggregateReceipt(rs.map((r) => r.status)),
       }))
@@ -62,7 +66,9 @@ export function useThread(meId: Ref<string> | string) {
   function forTarget(t: ChatTarget | null): ChatMessage[] {
     if (!t) return [];
     return messages.value.filter((m) =>
-      t.kind === "group" ? m.group_id === t.id : !m.group_id && m.rows[0].recipient_id === t.id,
+      t.kind === "group"
+        ? m.group_id === t.id
+        : !m.group_id && (m.mine ? m.rows[0].recipient_id === t.id : m.sender_id === t.id),
     );
   }
 
@@ -70,6 +76,9 @@ export function useThread(meId: Ref<string> | string) {
     .channel(`thread-${id()}`)
     .on("postgres_changes",
       { event: "*", schema: "public", table: "notifications", filter: `sender_id=eq.${id()}` },
+      (p) => { if (p.new && "id" in p.new) merge(p.new as Notification); })
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${id()}` },
       (p) => { if (p.new && "id" in p.new) merge(p.new as Notification); });
 
   let timer: ReturnType<typeof setInterval> | undefined;

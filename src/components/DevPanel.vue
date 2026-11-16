@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { Check, CircleAlert, Eye, MessageSquareText, Palette, Send, Users } from "lucide-vue-next";
+import { Bell, Check, CircleAlert, Eye, MessageSquareText, Palette, Send, Users } from "lucide-vue-next";
 import { supabase, type HeaderMessage, type Profile } from "../lib/supabase";
 import { THEMES, THEME_KEYS, isThemeKey, type ThemeKey } from "../lib/themes";
 
@@ -47,6 +47,40 @@ async function pushUpdate() {
   pushed.value = true;
 }
 
+// ---- Shout test -------------------------------------------------------
+// Inserts a real notification from the signed-in dev to the chosen recipient, so the
+// incoming-shout popup fires exactly as it would for a normal shout.
+const myId = ref("");
+const testRecipient = ref("");
+const testText = ref("Test shout from Dev panel");
+const testing = ref(false);
+const testError = ref("");
+const testSent = ref(false);
+
+async function loadMyId() {
+  const { data } = await supabase.auth.getSession();
+  myId.value = data.session?.user.id ?? "";
+  testRecipient.value ||= myId.value;
+}
+
+async function sendTestShout() {
+  testError.value = "";
+  testSent.value = false;
+  const message = testText.value.trim();
+  if (!message || !testRecipient.value) return (testError.value = "Pick a recipient and enter a message.");
+  testing.value = true;
+  const { error: dbErr } = await supabase.from("notifications").insert({
+    sender_id: myId.value,
+    recipient_id: testRecipient.value,
+    message,
+    batch_id: crypto.randomUUID(),
+    group_id: null,
+  });
+  testing.value = false;
+  if (dbErr) return (testError.value = dbErr.message);
+  testSent.value = true;
+}
+
 // ---- App theme ----------------------------------------------------------
 // Stored in the app_theme table. App.vue applies it to everyone, live.
 const themeKey = ref<ThemeKey>("default");
@@ -73,7 +107,10 @@ async function saveTheme() {
   themeSaved.value = true;
 }
 
-onMounted(loadTheme);
+onMounted(() => {
+  loadTheme();
+  loadMyId();
+});
 
 // ---- Header message -----------------------------------------------------
 const MESSAGE_MAX = 200;
@@ -183,8 +220,44 @@ async function save() {
         </section>
       </div>
 
-      <!-- Right column: appearance and header message -->
+      <!-- Right column: shout test, appearance and header message -->
       <div class="flex min-w-0 flex-col gap-4">
+        <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <header class="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center text-emerald-700">
+              <Bell class="h-4 w-4" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <h2 class="text-sm font-semibold text-slate-900">Shout test</h2>
+              <p class="text-xs text-slate-500">Sends a real shout so the incoming popup opens. Defaults to you.</p>
+            </div>
+          </header>
+          <div class="space-y-3 px-5 py-4">
+            <div>
+              <label for="test-recipient" class="mb-1.5 block text-2xs font-medium uppercase tracking-wide text-slate-500">Recipient</label>
+              <select id="test-recipient" v-model="testRecipient"
+                class="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                <option v-for="u in users" :key="u.id" :value="u.id">{{ u.full_name }}{{ u.id === myId ? ' (me)' : '' }}</option>
+              </select>
+            </div>
+            <div>
+              <label for="test-text" class="mb-1.5 block text-2xs font-medium uppercase tracking-wide text-slate-500">Message</label>
+              <input id="test-text" v-model="testText" :maxlength="MESSAGE_MAX" placeholder="Type a message…"
+                class="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
+            <p class="flex min-w-0 items-center gap-1.5 text-xs">
+              <span v-if="testError" class="flex items-center gap-1.5 text-red-600"><CircleAlert class="h-3.5 w-3.5 shrink-0" /> {{ testError }}</span>
+              <span v-else-if="testSent" class="flex items-center gap-1.5 text-emerald-700"><Check class="h-3.5 w-3.5 shrink-0" /> Shout sent</span>
+            </p>
+            <button :disabled="testing || !myId" @click="sendTestShout"
+              class="shrink-0 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60">
+              {{ testing ? "Sending…" : "Send test shout" }}
+            </button>
+          </div>
+        </section>
+
         <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
           <header class="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
             <span class="flex h-8 w-8 shrink-0 items-center justify-center text-emerald-700">

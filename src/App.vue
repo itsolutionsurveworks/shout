@@ -5,9 +5,9 @@ import { listen } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { isAdminRole, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
-import { checkForUpdates, installPendingUpdate, startUpdateChecks, stopUpdateChecks } from "./lib/updater";
+import { checkForUpdates, installPendingUpdate, startUpdateChecks, stopUpdateChecks, updateActivity, updateNotice } from "./lib/updater";
 import { applyTheme, isThemeKey, THEMES, type ThemeKey } from "./lib/themes";
-import { onRefresh, refreshAll, refreshedAt, refreshing, refreshState } from "./lib/refresh";
+import { onRefresh, refreshAll, refreshedAt, refreshing, refreshState, refreshStep } from "./lib/refresh";
 import { cached, clearCache } from "./lib/cache";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
@@ -42,10 +42,14 @@ async function loadHeaderMessage() {
   return null;
 }
 
-// Status line: refresh progress first, then the dev message if enabled, otherwise the last refresh result.
+// Status line, highest priority first:
+// live update step (e.g. "Downloading 0.1.8 · 42%") > live refresh step > update result (ready / failed)
+// > dev message if enabled > last refresh result.
 const timeFormat: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
 const statusLine = computed(() => {
-  if (refreshState.value === "fetching") return { text: "Fetching…", error: false };
+  if (updateActivity.value) return { text: updateActivity.value, error: false };
+  if (refreshState.value === "fetching") return { text: refreshStep.value || "Fetching…", error: false };
+  if (updateNotice.value) return updateNotice.value;
   if (headerMessage.value?.enabled && headerMessage.value.message) return { text: headerMessage.value.message, error: false };
   const stamp = refreshedAt.value ? ` · ${refreshedAt.value.toLocaleString([], timeFormat)}` : "";
   if (refreshState.value === "error") return { text: `Refresh failed${stamp}`, error: true };
@@ -140,13 +144,18 @@ onMounted(async () => {
     // A downloaded update installs only when the app is opened from the tray or launched again (Rust emits "app-opened").
     void listen("app-opened", () => void installPendingUpdate());
   }
-  // The refresh button reloads the signed-in user's profile too (role or name may have changed).
-  // Throwing here marks the refresh as failed in the status line.
+  // The refresh button checks for a new release, then reloads the signed-in user's profile too
+  // (role or name may have changed). Data errors throw, which marks the refresh as failed in the
+  // status line. Update problems are shown by the update notice instead.
   offRefresh = onRefresh(async () => {
-    const errors = await Promise.all([
-      me.value ? loadProfile(me.value.id) : null,
-      loadHeaderMessage(),
-      loadTheme(),
+    refreshStep.value = "Checking for updates…";
+    const [, errors] = await Promise.all([
+      isAlertWindow ? null : checkForUpdates(),
+      Promise.all([
+        me.value ? loadProfile(me.value.id) : null,
+        loadHeaderMessage(),
+        loadTheme(),
+      ]),
     ]);
     const failed = errors.find(Boolean);
     if (failed) throw failed;

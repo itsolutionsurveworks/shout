@@ -29,9 +29,21 @@ async function enqueue(n: Notification) {
   new Audio("/chime.mp3").play().catch(() => {});
 }
 
-async function acknowledge() {
+const replying = ref(false);
+const replyText = ref("");
+
+// Acknowledge the current shout; with `reply`, also send that text back to its sender.
+async function acknowledge(reply?: string) {
   const item = queue.value[0];
   if (!item) return;
+  if (reply) {
+    const { error: e } = await supabase.from("notifications")
+      .insert({ sender_id: props.me.id, recipient_id: item.n.sender_id, message: reply, batch_id: crypto.randomUUID(), group_id: null });
+    if (e) {
+      replyError.value = e.message.includes("Spam Detected") ? "Spam Detected, wait a few seconds." : `Couldn't send reply: ${e.message}`;
+      return;
+    }
+  }
   const { error } = await supabase.from("notifications").update({ status: "acknowledged" }).eq("id", item.n.id);
   if (error) {
     // Keep the shout on screen so the user can retry instead of silently losing the reply.
@@ -40,6 +52,8 @@ async function acknowledge() {
     return;
   }
   replyError.value = "";
+  replying.value = false;
+  replyText.value = "";
   queue.value.shift();
   if (queue.value.length === 0 && win) {
     await win.setAlwaysOnTop(false);
@@ -140,7 +154,7 @@ onUnmounted(() => {
     <div class="flex min-h-0 flex-1 items-center px-4 py-3">
       <div class="relative w-full rounded-lg rounded-tl-none bg-white px-5 py-4 shadow-sm">
         <MessageContent :text="current.n.message" img-class="max-h-48 max-w-full"
-          text-class="line-clamp-4 text-lg font-medium leading-snug text-slate-900" />
+          text-class="line-clamp-4 font-medium leading-snug text-slate-900" />
       </div>
     </div>
 
@@ -150,8 +164,18 @@ onUnmounted(() => {
         {{ queue.length - 1 }} more waiting
       </p>
       <p v-if="replyError" class="text-center text-xs text-red-600">{{ replyError }}</p>
-      <button class="w-full rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
-        @click="acknowledge">Acknowledged</button>
+      <form v-if="replying" class="flex items-center gap-2" @submit.prevent="replyText.trim() && acknowledge(replyText.trim())">
+        <input v-model="replyText" maxlength="500" placeholder="Type a reply" autofocus
+          class="flex-1 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none" />
+        <button type="button" class="rounded-full px-3 py-2 text-sm text-slate-600 hover:bg-slate-200" @click="replying = false">Cancel</button>
+        <button :disabled="!replyText.trim()" class="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Send</button>
+      </form>
+      <div v-else class="flex gap-2">
+        <button class="flex-1 rounded-full bg-white py-2.5 text-sm font-semibold text-emerald-700 shadow-sm ring-1 ring-emerald-600 transition hover:bg-emerald-50 active:scale-[0.98]"
+          @click="replying = true">Reply</button>
+        <button class="flex-1 rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
+          @click="acknowledge()">Acknowledged</button>
+      </div>
     </div>
   </div>
 </template>

@@ -1,3 +1,4 @@
+import { ref } from "vue";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
@@ -8,29 +9,64 @@ let timer: ReturnType<typeof setInterval> | undefined;
 // "error" means the check or download failed.
 export type UpdateStatus = "up-to-date" | "ready" | "error";
 
+// What the update check is doing right now, e.g. "Checking for updates…" or "Downloading 0.1.8 · 42%".
+// Null when idle. The header status line shows it while it is set.
+export const updateActivity = ref<string | null>(null);
+// Result of the last finished check, shown in the header until the next check. Null when up to date.
+export const updateNotice = ref<{ text: string; error: boolean } | null>(null);
+
 let inFlight: Promise<UpdateStatus> | null = null;
 let pending: Update | null = null;
 
 // Looks for a newer release on GitHub and downloads it. Nothing is installed yet, so a PC
 // in the background is never restarted mid-shout. installPendingUpdate() runs when the
-// window is opened. Only one check runs at a time.
+// window is opened. Only one check runs at a time; a second caller joins the running one.
 export function checkForUpdates(): Promise<UpdateStatus> {
   if (!("__TAURI_INTERNALS__" in window)) return Promise.resolve("error");
-  inFlight ??= runCheck().finally(() => { inFlight = null; });
+  inFlight ??= runCheck().finally(() => {
+    inFlight = null;
+    updateActivity.value = null;
+  });
   return inFlight;
 }
 
 async function runCheck(): Promise<UpdateStatus> {
   try {
-    if (pending) return "ready";
+    if (pending) {
+      updateNotice.value = { text: `Update ${pending.version} ready · open the app from the tray to install`, error: false };
+      return "ready";
+    }
+    updateActivity.value = "Checking for updates…";
+    console.info("Checking for updates");
     const update = await check();
-    if (!update) return "up-to-date";
-    console.info(`Downloading update ${update.version}`);
-    await update.download();
+    if (!update) {
+      console.info("Up to date");
+      updateNotice.value = null;
+      return "up-to-date";
+    }
+    console.info(`Update ${update.version} found (current ${update.currentVersion})`);
+    updateActivity.value = `Downloading ${update.version}…`;
+    let total = 0;
+    let received = 0;
+    await update.download((event) => {
+      if (event.event === "Started") {
+        total = event.data.contentLength ?? 0;
+        console.info(`Downloading ${update.version}: ${total ? `${total} bytes` : "unknown size"}`);
+      } else if (event.event === "Progress") {
+        received += event.data.chunkLength;
+        const percent = total ? Math.floor((received / total) * 100) : null;
+        updateActivity.value = `Downloading ${update.version}${percent === null ? "" : ` · ${percent}%`}`;
+      } else {
+        console.info(`Downloaded ${update.version}`);
+      }
+    });
     pending = update;
+    updateNotice.value = { text: `Update ${update.version} ready · open the app from the tray to install`, error: false };
     return "ready";
   } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
     console.error("Update check failed", e);
+    updateNotice.value = { text: `Update check failed: ${reason}`, error: true };
     return "error";
   }
 }
@@ -42,11 +78,16 @@ export async function installPendingUpdate(): Promise<void> {
   pending = null;
   try {
     console.info(`Installing update ${update.version}`);
+    updateActivity.value = `Installing ${update.version}…`;
     await update.install();
     await relaunch();
   } catch (e) {
     console.error("Update install failed", e);
     pending = update;
+    const reason = e instanceof Error ? e.message : String(e);
+    updateNotice.value = { text: `Install failed: ${reason}`, error: true };
+  } finally {
+    updateActivity.value = null;
   }
 }
 
