@@ -25,9 +25,9 @@ watch(q, () => { clearTimeout(timer); timer = setTimeout(load, 350); });
     <!-- Chrome-style tab strip, same look as the People / Admin tabs in the header. -->
     <nav class="flex shrink-0 items-end gap-1 text-xs">
       <button type="button" class="relative flex-1 rounded-t-lg py-2 font-medium uppercase transition-colors"
-        :class="tab === 'emoji' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'" @click="tab = 'emoji'">Emoji</button>
+        :class="tab === 'emoji' ? 'bg-white text-slate-900' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'" @click="tab = 'emoji'">Emoji</button>
       <button type="button" class="relative flex-1 rounded-t-lg py-2 font-medium uppercase transition-colors"
-        :class="tab === 'gif' ? 'bg-white text-slate-900' : 'text-slate-600 hover:bg-slate-300/60'" @click="tab = 'gif'">GIF</button>
+        :class="tab === 'gif' ? 'bg-white text-slate-900' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'" @click="tab = 'gif'">GIF</button>
     </nav>
     <div class="flex min-h-0 flex-1 flex-col bg-white p-2">
     <div v-if="tab === 'emoji'" class="grid min-h-0 flex-1 grid-cols-6 content-start gap-1 overflow-auto">
