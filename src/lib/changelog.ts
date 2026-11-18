@@ -8,9 +8,33 @@ export interface Release {
   fixed?: string[];
 }
 
-export const SIGNATURE = "Regards, vince@dev";
+export const SIGNATURE = "Regards, [SE/DEV] Vince";
 
 export const CHANGELOG: Release[] = [
+  {
+    version: "0.1.9",
+    date: "2026-11-18",
+    added: [
+      "Full conversation threads showing both sent and received messages",
+      "Quick 'Reply' button added next to the 'Acknowledge' button on shout popup window",
+      "Interactive group member panel (click the header to view online/offline members)",
+      "Photo support: You can now send photos in conversations",
+      "Group customization: Set group profile pictures",
+      "Complete emoji selection menu",
+    ],
+    changed: [
+      "Overhauled update/refresh button auto-update logic",
+      "Streamlined read receipts: Removed 'acknowledged' chat bubbles in favor of double-checkmarks",
+      "Shout popup message font size adjustment",
+      "Improved Emoji/GIF panel legibility and added in and out animations",
+      "Implemented rate-limiting/spam prevention for Quick Shouts",
+      "Added 100 max character limits across text inputs",
+    ],
+    fixed: [
+      "GIFs displaying as raw text links to receivers instead of animating",
+      "GIF sizing and scaling issues in chat",
+    ],
+  },
   {
     version: "0.1.8",
     date: "2026-11-13",
