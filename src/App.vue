@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { isAdminRole, supabase, type HeaderMessage, type Profile } from "./lib/supabase";
 import { startPresence, stopPresence } from "./lib/presence";
-import { checkForUpdates, installPendingUpdate, startUpdateChecks, stopUpdateChecks, updateActivity, updateNotice } from "./lib/updater";
+import { checkForUpdates, startUpdateChecks, stopUpdateChecks, updateActivity, updateNotice } from "./lib/updater";
 import { applyTheme, isThemeKey, THEMES, type ThemeKey } from "./lib/themes";
 import { onRefresh, refreshAll, refreshedAt, refreshing, refreshState, refreshStep } from "./lib/refresh";
 import { cached, clearCache } from "./lib/cache";
@@ -143,8 +142,6 @@ onMounted(async () => {
     await getCurrentWindow().setMinSize(new LogicalSize(MIN_WIDTH, MIN_HEIGHT));
     // Only the main window checks for updates; the alert popup is short-lived.
     startUpdateChecks();
-    // A downloaded update installs only when the app is opened from the tray or launched again (Rust emits "app-opened").
-    void listen("app-opened", () => void installPendingUpdate());
   }
   // The refresh button checks for a new release, then reloads the signed-in user's profile too
   // (role or name may have changed). Data errors throw, which marks the refresh as failed in the

@@ -5,8 +5,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 let timer: ReturnType<typeof setInterval> | undefined;
 
-// "ready" means a newer release is downloaded and waits for the window to be opened.
-// "error" means the check or download failed.
+// "ready" means a newer release was downloaded and installed (the app restarts).
+// "error" means the check, download or install failed.
 export type UpdateStatus = "up-to-date" | "ready" | "error";
 
 // What the update check is doing right now, e.g. "Checking for updates…" or "Downloading 0.1.8 · 42%".
@@ -18,9 +18,8 @@ export const updateNotice = ref<{ text: string; error: boolean } | null>(null);
 let inFlight: Promise<UpdateStatus> | null = null;
 let pending: Update | null = null;
 
-// Looks for a newer release on GitHub and downloads it. Nothing is installed yet, so a PC
-// in the background is never restarted mid-shout. installPendingUpdate() runs when the
-// window is opened. Only one check runs at a time; a second caller joins the running one.
+// Looks for a newer release on GitHub, downloads it and installs it silently (passive mode,
+// then relaunch). Only one check runs at a time; a second caller joins the running one.
 export function checkForUpdates(): Promise<UpdateStatus> {
   if (!("__TAURI_INTERNALS__" in window)) return Promise.resolve("error");
   inFlight ??= runCheck().finally(() => {
@@ -33,7 +32,8 @@ export function checkForUpdates(): Promise<UpdateStatus> {
 async function runCheck(): Promise<UpdateStatus> {
   try {
     if (pending) {
-      updateNotice.value = { text: `Update ${pending.version} ready · open the app from the tray to install`, error: false };
+      // A previous install failed; retry it now.
+      await installPendingUpdate();
       return "ready";
     }
     updateActivity.value = "Checking for updates…";
@@ -60,8 +60,10 @@ async function runCheck(): Promise<UpdateStatus> {
         console.info(`Downloaded ${update.version}`);
       }
     });
+    // Install right away in the background; the app restarts into the new version on its own.
+    // If the install fails, installPendingUpdate() keeps the update in `pending` and reports the error.
     pending = update;
-    updateNotice.value = { text: `Update ${update.version} ready · open the app from the tray to install`, error: false };
+    await installPendingUpdate();
     return "ready";
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
@@ -71,8 +73,8 @@ async function runCheck(): Promise<UpdateStatus> {
   }
 }
 
-// Installs a downloaded release and restarts. Called when the window gains focus (opened from the tray).
-export async function installPendingUpdate(): Promise<void> {
+// Installs a downloaded release and restarts the app.
+async function installPendingUpdate(): Promise<void> {
   const update = pending;
   if (!update) return;
   pending = null;

@@ -12,6 +12,13 @@ export const SIGNATURE = "Regards, [SE/DEV] Vince";
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.1.12",
+    date: "2026-11-18",
+    changed: [
+      "Updates install silently in the background after refresh; no need to open the app from the tray",
+    ],
+  },
+  {
     version: "0.1.10",
     date: "2026-11-18",
     fixed: [
