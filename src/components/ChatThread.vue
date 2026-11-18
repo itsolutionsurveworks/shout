@@ -18,7 +18,7 @@ function markHintSeen() {
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ImagePlus, MessageCircle, Send, Smile } from "lucide-vue-next";
 import GroupAvatar from "./GroupAvatar.vue";
 import EmojiGifPicker from "./EmojiGifPicker.vue";
@@ -160,6 +160,22 @@ function onMediaLoad() {
 // initial history load all change the entry count, so the latest item stays in view.
 watch(() => items.value.length, toBottom);
 watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; showMembers.value = false; toBottom(); }, { immediate: true });
+
+// Pressing anywhere outside the quick shout and emoji/GIF panels (and their toggle buttons)
+// collapses them. The toggle buttons are excluded so their own click handlers still work.
+const quickPanel = ref<HTMLElement | null>(null);
+const pickerPanel = ref<HTMLElement | null>(null);
+const quickToggle = ref<HTMLElement | null>(null);
+const pickerToggle = ref<HTMLElement | null>(null);
+function onOutsidePress(e: PointerEvent) {
+  const t = e.target as Node;
+  const inside = [quickPanel, pickerPanel, quickToggle, pickerToggle].some((r) => r.value?.contains(t));
+  if (inside) return;
+  showQuick.value = false;
+  showPicker.value = false;
+}
+onMounted(() => document.addEventListener("pointerdown", onOutsidePress));
+onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePress));
 </script>
 
 <template>
@@ -167,8 +183,6 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
     <!-- Header and chat wallpaper. The info panel is confined to this area, so it covers the
          header but stops above the quick shouts. -->
     <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      <!-- Light backdrop over the thread while the emoji/GIF picker is open; click to dismiss. -->
-      <div v-if="showPicker" class="absolute inset-0 z-10 bg-slate-900/10" @click="showPicker = false"></div>
       <header class="bg-slate-100">
         <!-- For a group the whole avatar + name + counter block is one button that opens the group panel. -->
         <button v-if="group && !user" type="button" title="Group info"
@@ -217,14 +231,14 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
     <div v-if="canSend" class="relative">
       <!-- Quick shouts: floating card above the input bar, toggled by the Zap button. -->
       <Transition name="picker-rise">
-        <div v-show="showQuick" class="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-xl shadow-xl">
+        <div v-show="showQuick" ref="quickPanel" class="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-xl shadow-xl">
           <QuickShouts :me="me" @send="(t) => emit('send', t)" @error="(m) => emit('error', m)" />
         </div>
       </Transition>
 
       <!-- Input bar: quick shout toggle on the left, custom message, send. -->
       <Transition name="picker-rise">
-        <div v-show="showPicker" class="absolute bottom-full left-3 right-3 z-20 mb-2">
+        <div v-show="showPicker" ref="pickerPanel" class="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-xl shadow-xl">
           <EmojiGifPicker @emoji="(e) => (draft = (draft + e).slice(0, SHOUT_MAX))" @gif="sendGif" />
         </div>
       </Transition>
@@ -236,7 +250,7 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
             Quick Shouts
             <span class="absolute left-[14px] top-full h-0 w-0 border-x-4 border-t-4 border-x-transparent border-t-emerald-600"></span>
           </span>
-          <button type="button" :aria-expanded="showQuick" aria-label="Quick shouts"
+          <button ref="quickToggle" type="button" :aria-expanded="showQuick" aria-label="Quick shouts"
             :title="showQuick ? 'Hide quick shouts' : 'Show quick shouts'"
             class="flex h-9 w-9 items-center justify-center rounded-full transition-colors"
             :class="showQuick ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
@@ -244,7 +258,7 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
             <MessageCircle class="h-4 w-4" />
           </button>
         </div>
-        <button type="button" aria-label="Emoji and GIFs" title="Emoji and GIFs"
+        <button ref="pickerToggle" type="button" aria-label="Emoji and GIFs" title="Emoji and GIFs"
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
           :class="showPicker ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
           @click="showPicker = !showPicker; showQuick = false">

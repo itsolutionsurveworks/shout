@@ -9,7 +9,13 @@ const gif = computed(() => gifUrl(props.text));
 // Photos carry their size, so the box is reserved (with a pulsing skeleton) until the image loads.
 const size = computed(() => imageSize(props.text));
 const loaded = ref(false);
-watch(gif, () => (loaded.value = false));
+// A photo that fails to load has been removed by the weekly chat-photo cleanup.
+const failed = ref(false);
+watch(gif, () => { loaded.value = false; failed.value = false; });
+function onImgError() {
+  loaded.value = true;
+  if (size.value) failed.value = true;
+}
 const boxStyle = computed(() => size.value ? photoBox(size.value.w, size.value.h, props.maxH) : undefined);
 const capStyle = computed(() => props.maxH && !size.value ? { maxHeight: `${props.maxH}px` } : undefined);
 const open = ref(false);
@@ -24,11 +30,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
 <template>
   <template v-if="gif">
-    <div v-if="size" class="overflow-hidden rounded-md bg-slate-200/70" :class="[loaded ? '' : 'animate-pulse', imgClass?.includes('mx-auto') ? 'mx-auto' : '']"
+    <div v-if="size && failed" class="max-w-full rounded-md bg-slate-200/70 px-3 py-2 text-sm italic text-slate-600"
+      :class="imgClass?.includes('mx-auto') ? 'mx-auto' : ''" :style="{ minWidth: '96px' }">
+      Photo cleared. Chat photos are deleted every Friday at 11:59 PM (PHT) to save space.
+    </div>
+    <div v-else-if="size" class="overflow-hidden rounded-md bg-slate-200/70" :class="[loaded ? '' : 'animate-pulse', imgClass?.includes('mx-auto') ? 'mx-auto' : '']"
       :style="boxStyle">
       <img :src="gif" alt="Image" referrerpolicy="no-referrer"
         class="h-full w-full object-contain transition-opacity duration-300" :class="[loaded ? 'opacity-100' : 'opacity-0', zoomable ? 'cursor-zoom-in' : '']"
-        @load="loaded = true" @error="loaded = true" @click="zoomable && (open = true)" />
+        @load="loaded = true" @error="onImgError" @click="zoomable && (open = true)" />
     </div>
     <img v-else :src="gif" alt="Image" referrerpolicy="no-referrer" :style="capStyle"
       class="rounded-md object-contain" :class="[imgClass ?? 'max-h-56 max-w-full', zoomable ? 'cursor-zoom-in' : '']"

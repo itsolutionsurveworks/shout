@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { MessagesSquare, Radio, Search, UsersRound } from "lucide-vue-next";
 import GroupAvatar from "./GroupAvatar.vue";
 import type { Profile } from "../lib/supabase";
 import { chatTime, type ChatGroup, type ChatMessage, type ChatTarget } from "../lib/thread";
@@ -16,6 +17,8 @@ const props = defineProps<{
   forTarget: (t: ChatTarget) => ChatMessage[];
 }>();
 const emit = defineEmits<{ select: [t: ChatTarget] }>();
+
+const filterIcons = { all: MessagesSquare, online: Radio, groups: UsersRound };
 
 const query = ref("");
 const filter = ref<"all" | "online" | "groups">("all");
@@ -49,13 +52,16 @@ const isSel = (r: Row) => props.selected?.kind === r.target.kind && props.select
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="space-y-2 px-3 pb-2 pt-3">
-      <input v-model="query" placeholder="Search or start new shout"
-        class="w-full rounded-md bg-slate-100 px-2.5 py-1 text-xs placeholder:text-slate-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+      <div class="relative">
+        <Search class="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+        <input v-model="query" placeholder="Search or start new shout"
+          class="w-full rounded-md bg-slate-100 py-1 pl-7 pr-2.5 text-xs placeholder:text-slate-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+      </div>
       <div class="flex gap-1.5 text-xs">
         <button v-for="f in (showGroups === false ? ['all', 'online'] : ['all', 'online', 'groups']) as ('all' | 'online' | 'groups')[]" :key="f"
-          class="rounded-full px-2 py-0.5 font-medium capitalize"
+          class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium capitalize"
           :class="filter === f ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
-          @click="filter = f">{{ f }}</button>
+          @click="filter = f"><component :is="filterIcons[f]" class="h-3 w-3" />{{ f }}</button>
       </div>
     </div>
 
