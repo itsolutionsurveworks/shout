@@ -43,7 +43,7 @@ const ackCount = computed(() => {
 
 <template>
   <SidePanel
-    :title="ackCount ? `${ackCount.done} of ${ackCount.total} acknowledged` : ''"
+    :title="ackCount ? `Info · ${ackCount.done} of ${ackCount.total} acknowledged` : 'Info'"
     :message="msg.message" :sent-at="msg.created_at" @close="$emit('close')">
     <section v-for="s in sections" :key="s.title" class="border-b border-slate-100 py-2">
       <h4 class="flex items-center gap-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-slate-500">
