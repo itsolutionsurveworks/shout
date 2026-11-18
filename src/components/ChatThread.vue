@@ -189,14 +189,14 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePress
           class="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-200/60" @click="showMembers = true">
           <GroupAvatar :group="group" size-class="h-10 w-10" icon-class="h-5 w-5" />
           <span class="min-w-0">
-            <span class="block truncate font-medium leading-tight">{{ group.name }}</span>
+            <span class="block truncate text-sm font-medium leading-tight">{{ group.name }}</span>
             <span class="block text-xs text-emerald-600">{{ subtitle }}</span>
           </span>
         </button>
         <div v-else class="flex items-center gap-3 px-4 py-2.5">
           <UserAvatar v-if="user" :user="user" size-class="h-10 w-10" />
           <div class="min-w-0">
-            <h2 class="truncate font-medium leading-tight">{{ user?.full_name }}</h2>
+            <h2 class="truncate text-sm font-medium leading-tight">{{ user?.full_name }}</h2>
             <p class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
           </div>
         </div>

@@ -256,7 +256,7 @@ async function logout() {
           <span class="hdr-fg-text text-sm font-bold uppercase tracking-wider text-slate-800">{{ me.full_name }}</span>
         </div>
         <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
-        <nav v-if="me.role !== 'receiver'" class="flex items-end pl-3 text-sm"
+        <nav v-if="me.role !== 'receiver'" class="flex items-end gap-1 pl-3 text-sm"
           :class="isAdminRole(me.role) ? 'w-[22%] min-w-[190px] max-w-[250px]' : 'w-[9%] min-w-[120px] max-w-[145px]'">
           <button class="relative flex flex-1 items-center justify-center whitespace-nowrap rounded-t-lg py-2 font-medium uppercase transition-colors"
             :class="[isAdminRole(me.role) ? 'px-3' : 'px-2', tab === 'people' ? 'bg-white text-slate-900' : 'hdr-fg text-slate-600 hover:bg-slate-300/60']"
