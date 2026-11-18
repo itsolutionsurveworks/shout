@@ -102,7 +102,7 @@ export function useThread(meId: Ref<string> | string) {
   };
 }
 
-export interface ChatGroup { id: string; name: string; members: string[] }
+export interface ChatGroup { id: string; name: string; members: string[]; avatar_url?: string | null; can_edit_photo?: boolean }
 
 // "14:05" today, "Yesterday", weekday this week, otherwise a short date.
 export function chatTime(iso: string): string {

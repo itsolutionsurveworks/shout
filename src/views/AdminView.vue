@@ -77,7 +77,8 @@ function quietLoad() {
 // search over every message (plus people and group names), capped at SEARCH_LIMIT rows.
 // Entries = audit lines (one per send). Rows are fetched in pages until enough entries exist:
 // a group shout is one row per recipient, so 200 entries can need far more than 200 rows.
-const LOG_ENTRIES = 200;
+const LOG_STEP = 200;
+const logLimit = ref(LOG_STEP); // developers can raise this with "Load more"
 const ROW_PAGE = 1000;
 const MAX_SEARCH_ROWS = 20000; // safety cap for database-wide searches
 let logReq = 0;
@@ -111,7 +112,7 @@ async function loadLogs() {
     if (error) { err.value = error.message; return; }
     rows.push(...(data ?? []));
     if ((data ?? []).length < ROW_PAGE) break;                     // no more rows
-    if (!term && new Set(rows.map(batchKey)).size > LOG_ENTRIES) break; // enough entries; one extra so the 200th is complete
+    if (!term && new Set(rows.map(batchKey)).size > logLimit.value) break; // enough entries; one extra so the last is complete
     if (term && rows.length >= MAX_SEARCH_ROWS) break;
   }
   if (term) searchLogs.value = rows;
@@ -254,6 +255,14 @@ function latencyOf(rs: any[]): string {
   const s = (last - first) / 1000;
   return s < 60 ? `${s.toFixed(0)}s` : `${(s / 60).toFixed(1)}m`;
 }
+// True when the default view is full, i.e. older entries probably exist beyond the limit.
+const canLoadMore = computed(() => !query.value.trim() && new Set(shownLogs.value.map(batchKey)).size > logLimit.value);
+const loadingMore = ref(false);
+async function loadMoreLogs() {
+  loadingMore.value = true;
+  logLimit.value += LOG_STEP;
+  try { await loadLogs(); } finally { loadingMore.value = false; }
+}
 const auditRows = computed<AuditRow[]>(() => {
   const by = new Map<string, any[]>();
   for (const n of shownLogs.value) {
@@ -261,8 +270,8 @@ const auditRows = computed<AuditRow[]>(() => {
     (by.get(k) ?? by.set(k, []).get(k)!).push(n);
   }
   const entries = [...by.entries()];
-  // Default view: the newest LOG_ENTRIES entries. Searches show every match.
-  const shown = query.value.trim() ? entries : entries.slice(0, LOG_ENTRIES);
+  // Default view: the newest logLimit entries. Searches show every match.
+  const shown = query.value.trim() ? entries : entries.slice(0, logLimit.value);
   return shown.map(([key, rs]) => {
     const head = rs[0];
     const group = head.group_id ? groups.value.find((g) => g.id === head.group_id) : undefined;
@@ -579,7 +588,7 @@ onUnmounted(() => {
                     <span v-if="n.toSub" class="block truncate text-2xs text-slate-400">{{ n.toSub }}</span>
                   </td>
                   <td class="truncate px-2 py-2.5 text-slate-700" :title="n.message">
-                    <MessageContent :text="n.message" text-class="truncate text-sm" img-class="max-h-12 max-w-full rounded" />
+                    <MessageContent :text="n.message" text-class="truncate text-sm" img-class="max-h-12 max-w-full rounded" :max-h="48" />
                   </td>
                   <td class="px-2 py-2.5">
                     <span class="flex items-center gap-1.5 text-2xs" :class="n.receipt === 'seen' ? 'text-sky-600' : 'text-slate-500'">
@@ -607,6 +616,9 @@ onUnmounted(() => {
           </Teleport>
           <div v-if="auditRows.length > PAGE_SIZE" class="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
             <span class="tabular-nums">{{ page * PAGE_SIZE + 1 }}–{{ Math.min((page + 1) * PAGE_SIZE, auditRows.length) }} of {{ auditRows.length }}</span>
+            <button v-if="isDev && canLoadMore" :disabled="loadingMore" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40" @click="loadMoreLogs">
+              {{ loadingMore ? "Loading…" : "Load " + 200 + " more" }}
+            </button>
             <div class="flex items-center gap-1">
               <button :disabled="page === 0" title="Previous page" aria-label="Previous page" @click="page--"
                 class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">

@@ -5,6 +5,7 @@ import { supabase, type Notification, type Profile } from "../lib/supabase";
 import UserAvatar from "../components/UserAvatar.vue";
 import MessageContent from "../components/MessageContent.vue";
 import { SHOUT_MAX } from "../lib/limits";
+import { imageSize } from "../lib/media";
 
 const props = defineProps<{ me: Profile }>();
 
@@ -19,15 +20,29 @@ const current = computed(() => queue.value[0] ?? null);
 
 // The popup has a fixed width but its height follows the content (text length, GIF size),
 // so the alert window is resized to fit whatever is showing.
-const ALERT_WIDTH = 460;
+const BASE_WIDTH = 460;
+// Photos get a wider window so they show at (up to) their real, sharp size instead of shrunk to fit 460px.
+const alertWidth = computed(() => {
+  const size = current.value ? imageSize(current.value.n.message) : null;
+  if (!size) return BASE_WIDTH;
+  const imgW = Math.min(size.w, (imgMaxH * size.w) / size.h);
+  return Math.round(Math.min(Math.max(BASE_WIDTH, imgW + 72), window.screen.availWidth - 80));
+});
 const root = ref<HTMLElement | null>(null);
 let ro: ResizeObserver | null = null;
+// Room left for the image once the header, sender row, buttons and padding are accounted for.
+const imgMaxH = Math.max(200, window.screen.availHeight - 80 - 330);
 async function fitWindow() {
   if (!win || !root.value) return;
   // Round up so sub-pixel layout never leaves the window a pixel short (which shows a scrollbar).
   const height = Math.min(Math.ceil(root.value.getBoundingClientRect().height), window.screen.availHeight - 80);
-  await win.setSize(new LogicalSize(ALERT_WIDTH, height));
+  await win.setSize(new LogicalSize(alertWidth.value, height));
 }
+watch(alertWidth, async () => {
+  await nextTick();
+  await fitWindow();
+  await win?.center();
+});
 // Re-measure whenever the content changes size (new shout, GIF finishing loading, reply box opening).
 watch(root, (el) => {
   ro?.disconnect();
@@ -36,9 +51,12 @@ watch(root, (el) => {
   ro.observe(el);
 });
 // Bring a new shout to the middle of the screen, since its height may differ from the last one.
+// Centre only after the new size is applied; centring first and resizing afterwards leaves the window off-centre.
 watch(() => current.value?.n.id, async () => {
   await nextTick();
-  if (win) await win.center();
+  if (!win) return;
+  await fitWindow();
+  await win.center();
 });
 // The alert window is sized to its content, so the page itself must never scroll.
 if (win) {
@@ -198,7 +216,7 @@ onUnmounted(() => {
 
 <template>
   <!-- Fills the alert window (no dimming overlay of the main app). -->
-  <div v-if="current" ref="root" class="flex w-[460px] flex-col overflow-hidden rounded-2xl bg-[#efeae2] font-sans text-slate-900">
+  <div v-if="current" ref="root" :style="{ width: `${alertWidth}px` }" class="flex flex-col overflow-hidden rounded-2xl bg-[#efeae2] font-sans text-slate-900">
     <!-- Header: same bar style as the chat header, emerald for an incoming alert -->
     <header class="flex shrink-0 items-center justify-between bg-emerald-600 px-4 py-2.5 text-white">
       <span class="text-xs font-semibold uppercase tracking-wider">Incoming shout</span>
@@ -222,8 +240,8 @@ onUnmounted(() => {
     <!-- Message: an incoming bubble on the chat wallpaper -->
     <div class="flex items-center px-4 py-3">
       <div class="relative w-full rounded-lg bg-white px-5 py-4 shadow-sm">
-        <!-- No height cap on GIFs: the window grows to fit the full-size image. -->
-        <MessageContent :text="current.n.message" img-class="mx-auto block max-w-full" :zoomable="false"
+        <!-- Images show whole (never cropped): the window grows to fit, capped to what the screen can hold. -->
+        <MessageContent :text="current.n.message" img-class="mx-auto block max-w-full" :max-h="imgMaxH" :zoomable="false"
           text-class="font-medium leading-snug text-slate-900" />
       </div>
     </div>
@@ -246,7 +264,8 @@ onUnmounted(() => {
         <button type="button" class="rounded-full px-3 py-2 text-sm text-slate-600 hover:bg-slate-200" @click="replying = false">Cancel</button>
         <button :disabled="!replyText.trim()" class="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Send</button>
       </form>
-      <div v-else class="flex gap-2">
+      <!-- Capped width and centred: on a very wide window the buttons stay normal-sized in the middle. -->
+      <div v-else class="mx-auto flex w-full max-w-[360px] gap-2">
         <button class="flex-1 rounded-full bg-white py-2.5 text-sm font-semibold text-emerald-700 shadow-sm ring-1 ring-emerald-600 transition hover:bg-emerald-50 active:scale-[0.98]"
           @click="replying = true">Reply</button>
         <button class="flex-1 rounded-full bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"

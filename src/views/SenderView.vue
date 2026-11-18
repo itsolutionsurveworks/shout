@@ -24,7 +24,7 @@ const thread = useThread(toRef(() => props.me.id));
 async function load() {
   const [p, g] = await Promise.all([
     supabase.from("profiles").select("*").neq("id", props.me.id).order("full_name"),
-    canUseGroups ? supabase.from("groups").select("id, name, group_members(user_id)") : Promise.resolve({ data: [], error: null }),
+    canUseGroups ? supabase.from("groups").select("id, name, avatar_url, created_by, group_members(user_id)") : Promise.resolve({ data: [], error: null }),
   ]);
   // A failed request keeps the last known list on screen; the error goes to the caller.
   if (p.error) throw p.error;
@@ -33,6 +33,9 @@ async function load() {
   groups.value = (g.data ?? []).map((x: any) => ({
     id: x.id,
     name: x.name,
+    avatar_url: x.avatar_url,
+    // Creator or member (checked before filtering myself out below) may change the photo.
+    can_edit_photo: x.created_by === props.me.id || x.group_members.some((m: any) => m.user_id === props.me.id),
     // You can't shout yourself, so you're never a recipient of your own group shout.
     members: x.group_members.map((m: any) => m.user_id).filter((id: string) => id !== props.me.id),
   }));
@@ -105,7 +108,9 @@ onUnmounted(() => {
     </section>
 
     <ChatThread v-if="user || group" :me="me" :user="user" :group="group" :people="people" :online="onlineIds"
-      :messages="messages" :can-send="canSend" @send="send" @error="showToast" />
+      :messages="messages" :can-send="canSend" @send="send" @error="showToast"
+      @group-photo="(id, url) => { const g = groups.find((x) => x.id === id); if (g) g.avatar_url = url; }"
+      @group-rename="(id, name) => { const g = groups.find((x) => x.id === id); if (g) g.name = name; }" />
     <section v-else class="flex flex-1 flex-col items-center justify-center bg-slate-50 text-center text-slate-500">
       <MessageCircle class="mb-3 h-14 w-14 text-slate-300" />
       <p class="text-lg font-light text-slate-600">Office Shout</p>

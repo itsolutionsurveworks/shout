@@ -1,8 +1,28 @@
+<script lang="ts">
+import { ref as vref } from "vue";
+import { supabase as sb } from "../lib/supabase";
+
+// The hint is shown until the user first opens quick shouts; stays hidden until sign-out.
+const HINT_KEY = "quickShoutHintSeen";
+const hintSeen = vref(sessionStorage.getItem(HINT_KEY) === "1");
+sb.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_OUT") {
+    sessionStorage.removeItem(HINT_KEY);
+    hintSeen.value = false;
+  }
+});
+function markHintSeen() {
+  hintSeen.value = true;
+  sessionStorage.setItem(HINT_KEY, "1");
+}
+</script>
+
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { MessageCircle, Send, Smile, Users } from "lucide-vue-next";
+import { ImagePlus, MessageCircle, Send, Smile } from "lucide-vue-next";
+import GroupAvatar from "./GroupAvatar.vue";
 import EmojiGifPicker from "./EmojiGifPicker.vue";
-import type { Profile } from "../lib/supabase";
+import { supabase, type Profile } from "../lib/supabase";
 import { dayLabel, type ChatGroup, type ChatMessage } from "../lib/thread";
 import UserAvatar from "./UserAvatar.vue";
 import MessageBubble from "./MessageBubble.vue";
@@ -10,6 +30,7 @@ import MessageInfo from "./MessageInfo.vue";
 import QuickShouts from "./QuickShouts.vue";
 import GroupMembersPanel from "./GroupMembersPanel.vue";
 import { SHOUT_MAX } from "../lib/limits";
+import { photoBox } from "../lib/media";
 
 const props = defineProps<{
   me: Profile;
@@ -20,9 +41,10 @@ const props = defineProps<{
   messages: ChatMessage[];
   canSend: boolean;
 }>();
-const emit = defineEmits<{ send: [text: string]; error: [m: string] }>();
+const emit = defineEmits<{ send: [text: string]; error: [m: string]; groupPhoto: [id: string, url: string | null]; groupRename: [id: string, name: string] }>();
 
 const draft = ref("");
+// Quick shouts are open by default.
 const showQuick = ref(false);
 const showPicker = ref(false);
 const infoKey = ref<string | null>(null);
@@ -61,6 +83,65 @@ function sendGif(url: string) {
   showPicker.value = false;
 }
 
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const MAX_PHOTO_PX = 1280;
+const fileInput = ref<HTMLInputElement | null>(null);
+const uploading = ref(false);
+
+// Downscale and re-encode as WebP so uploads stay small; the .webp URL is shown as an image.
+async function toWebp(file: File): Promise<{ blob: Blob; w: number; h: number }> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_PHOTO_PX / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not process the image.");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/webp", 0.85));
+  if (!blob) throw new Error("Could not process the image.");
+  return { blob, w: canvas.width, h: canvas.height };
+}
+
+// While a photo uploads, a dimmed preview bubble with a spinner sits at the bottom of the thread.
+const pending = ref<{ url: string; w: number; h: number } | null>(null);
+// Same sizing rule MessageContent uses for photos, so the placeholder and the final bubble match.
+const photoBoxStyle = photoBox;
+function clearPending() {
+  if (!pending.value || uploading.value) return;
+  URL.revokeObjectURL(pending.value.url);
+  pending.value = null;
+}
+watch(() => items.value.length, clearPending);
+
+async function sendPhoto(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file || !props.canSend) return;
+  if (!file.type.startsWith("image/")) return emit("error", "Please choose an image file.");
+  if (file.size > MAX_PHOTO_BYTES) return emit("error", "Photo must be 10 MB or smaller.");
+  uploading.value = true;
+  try {
+    const { blob, w, h } = await toWebp(file);
+    pending.value = { url: URL.createObjectURL(blob), w, h };
+    toBottom();
+    const path = `${props.me.id}/${Date.now()}.webp`;
+    const { error } = await supabase.storage.from("chat-images").upload(path, blob, { contentType: "image/webp" });
+    if (error) throw error;
+    // The size rides along in the URL fragment so every viewer can reserve the right space before it loads.
+    emit("send", `${supabase.storage.from("chat-images").getPublicUrl(path).data.publicUrl}#${w}x${h}`);
+  } catch (err) {
+    emit("error", err instanceof Error ? err.message : "Could not upload the photo.");
+  } finally {
+    uploading.value = false;
+    // Hand over to the real message as soon as it shows up in the thread (or after a short fallback).
+    setTimeout(clearPending, 4000);
+  }
+}
+
 function toBottom() {
   atBottom.value = true;
   nextTick(() => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight; });
@@ -88,14 +169,22 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
     <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <!-- Light backdrop over the thread while the emoji/GIF picker is open; click to dismiss. -->
       <div v-if="showPicker" class="absolute inset-0 z-10 bg-slate-900/10" @click="showPicker = false"></div>
-      <header class="flex items-center gap-3 bg-slate-100 px-4 py-2.5">
-        <UserAvatar v-if="user" :user="user" size-class="h-10 w-10" />
-        <span v-else class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Users class="h-5 w-5" /></span>
-        <div class="min-w-0">
-          <h2 class="truncate font-medium leading-tight">{{ user?.full_name ?? group?.name }}</h2>
-          <button v-if="group && !user" type="button" class="text-left text-xs text-emerald-600 hover:underline"
-            title="View members" @click="showMembers = true">{{ subtitle }}</button>
-          <p v-else class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
+      <header class="bg-slate-100">
+        <!-- For a group the whole avatar + name + counter block is one button that opens the group panel. -->
+        <button v-if="group && !user" type="button" title="Group info"
+          class="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-200/60" @click="showMembers = true">
+          <GroupAvatar :group="group" size-class="h-10 w-10" icon-class="h-5 w-5" />
+          <span class="min-w-0">
+            <span class="block truncate font-medium leading-tight">{{ group.name }}</span>
+            <span class="block text-xs text-emerald-600">{{ subtitle }}</span>
+          </span>
+        </button>
+        <div v-else class="flex items-center gap-3 px-4 py-2.5">
+          <UserAvatar v-if="user" :user="user" size-class="h-10 w-10" />
+          <div class="min-w-0">
+            <h2 class="truncate font-medium leading-tight">{{ user?.full_name }}</h2>
+            <p class="text-xs" :class="subtitle.startsWith('offline') ? 'text-slate-500' : 'text-emerald-600'">{{ subtitle }}</p>
+          </div>
         </div>
       </header>
 
@@ -110,6 +199,18 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
           </div>
           <MessageBubble :msg="m" :sender-name="!m.mine && group ? nameOf(m.sender_id) : ''" @info="infoKey = m.key" />
         </template>
+        <!-- Photo being uploaded: sized to the image, dimmed, with a spinner. -->
+        <div v-if="pending" class="flex flex-col items-end">
+          <div class="relative max-w-[85%] rounded-lg rounded-tr-none bg-emerald-100 p-2.5 shadow-sm">
+            <div class="relative overflow-hidden rounded-md" :style="photoBoxStyle(pending.w, pending.h)">
+              <img :src="pending.url" alt="" class="h-full w-full object-contain opacity-50" />
+              <div class="absolute inset-0 flex items-center justify-center">
+                <span class="h-8 w-8 animate-spin rounded-full border-[3px] border-white border-t-emerald-600 shadow"></span>
+              </div>
+            </div>
+            <p class="mt-0.5 text-right text-2xs text-slate-500">Uploading…</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -129,19 +230,34 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
       </Transition>
 
       <form class="relative z-30 flex items-center gap-2 bg-slate-100 px-3 py-2" @submit.prevent="submit">
+        <div class="relative shrink-0">
+          <span v-if="!showQuick && !hintSeen" aria-hidden="true"
+            class="pointer-events-none absolute bottom-full left-0 mb-3 animate-bounce whitespace-nowrap rounded-md bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white shadow">
+            Quick Shouts
+            <span class="absolute left-[14px] top-full h-0 w-0 border-x-4 border-t-4 border-x-transparent border-t-emerald-600"></span>
+          </span>
+          <button type="button" :aria-expanded="showQuick" aria-label="Quick shouts"
+            :title="showQuick ? 'Hide quick shouts' : 'Show quick shouts'"
+            class="flex h-9 w-9 items-center justify-center rounded-full transition-colors"
+            :class="showQuick ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
+            @click="showQuick = !showQuick; showPicker = false; markHintSeen()">
+            <MessageCircle class="h-4 w-4" />
+          </button>
+        </div>
         <button type="button" aria-label="Emoji and GIFs" title="Emoji and GIFs"
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
           :class="showPicker ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
           @click="showPicker = !showPicker; showQuick = false">
           <Smile class="h-4 w-4" />
         </button>
-        <button type="button" :aria-expanded="showQuick" aria-label="Quick shouts"
-          :title="showQuick ? 'Hide quick shouts' : 'Show quick shouts'"
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors"
-          :class="showQuick ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-white text-emerald-600 hover:bg-emerald-50'"
-          @click="showQuick = !showQuick; showPicker = false">
-          <MessageCircle class="h-4 w-4" />
-        </button>
+        <template v-if="group || user">
+          <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="sendPhoto" />
+          <button type="button" aria-label="Send photo" title="Send photo" :disabled="uploading"
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-emerald-600 transition-colors hover:bg-emerald-50 disabled:opacity-40"
+            @click="showQuick = false; showPicker = false; fileInput?.click()">
+            <ImagePlus class="h-4 w-4" />
+          </button>
+        </template>
         <div class="relative flex-1">
           <input v-model="draft" :maxlength="SHOUT_MAX" :disabled="!canSend" placeholder="Type a custom message"
             class="w-full rounded-lg bg-white py-2 pl-3 pr-14 text-sm focus:outline-none disabled:bg-slate-50" />
@@ -162,7 +278,8 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
 
     <!-- Group members, split into online and offline. -->
     <Transition name="side-panel">
-      <GroupMembersPanel v-if="showMembers && group" :group="group" :me="me" :people="people" :online="online" @close="showMembers = false" />
+      <GroupMembersPanel v-if="showMembers && group" :group="group" :me="me" :people="people" :online="online"
+        @close="showMembers = false" @photo="(url) => emit('groupPhoto', group!.id, url)" @rename="(name) => emit('groupRename', group!.id, name)" />
     </Transition>
 
     <!-- Overlays the whole chat (header, messages, quick shouts, custom message). -->

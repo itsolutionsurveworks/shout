@@ -110,8 +110,7 @@ onUnmounted(() => {
     </p>
 
     <!-- Send mode: "Quick Shouts:" label, one-tap chips, and the manage icon after the last chip -->
-    <div v-if="!manage" class="mb-1 flex max-h-28 flex-wrap items-center gap-1.5 overflow-auto">
-      <h3 class="shrink-0 text-sm font-semibold text-slate-900">Quick Shouts:</h3>
+    <div v-if="!manage" class="flex max-h-28 flex-wrap items-center gap-1.5 overflow-auto">
       <button v-for="q in items" :key="q.id"
         class="max-w-full truncate rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
         :disabled="disabled || cooling" :title="q.text" @click="sendQuick(q.text)">{{ q.text }}</button>
@@ -122,8 +121,7 @@ onUnmounted(() => {
 
     <!-- Manage mode: edit / delete / add -->
     <template v-else>
-      <header class="mb-3 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-slate-900">Quick Shouts:</h3>
+      <header class="mb-3 flex items-center justify-end">
         <button title="Done" aria-label="Done"
           class="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
           @click="manage = false"><Check class="h-4 w-4" /></button>

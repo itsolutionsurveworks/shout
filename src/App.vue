@@ -17,7 +17,7 @@ import NotificationModal from "./views/NotificationModal.vue";
 import ProfileModal from "./views/ProfileModal.vue";
 import UserAvatar from "./components/UserAvatar.vue";
 import BuildFooter from "./components/BuildFooter.vue";
-import { LogOut, Menu, RotateCw, UserRoundPen } from "lucide-vue-next";
+import { Code, LogOut, Menu, RotateCw, ShieldCheck, UserRoundPen, Users } from "lucide-vue-next";
 
 // The "alert" window is a small frameless popup that shows only the shout modal.
 // It runs this same app, so it renders just NotificationModal instead of the dashboard.
@@ -257,13 +257,13 @@ async function logout() {
         </div>
         <!-- Tabs span the same width as the admin sidebar so the Admin tab's right edge lines up with it -->
         <nav v-if="me.role !== 'receiver'" class="flex items-end pl-3 text-sm"
-          :class="isAdminRole(me.role) ? 'w-[22%] min-w-[160px] max-w-[220px]' : 'w-[9%] min-w-[90px] max-w-[115px]'">
-          <button class="relative flex-1 rounded-t-lg py-2 font-medium uppercase transition-colors"
+          :class="isAdminRole(me.role) ? 'w-[22%] min-w-[190px] max-w-[250px]' : 'w-[9%] min-w-[120px] max-w-[145px]'">
+          <button class="relative flex flex-1 items-center justify-center whitespace-nowrap rounded-t-lg py-2 font-medium uppercase transition-colors"
             :class="[isAdminRole(me.role) ? 'px-3' : 'px-2', tab === 'people' ? 'bg-white text-slate-900' : 'hdr-fg text-slate-600 hover:bg-slate-300/60']"
-            @click="tab = 'people'">People</button>
-          <button v-if="isAdminRole(me.role)" class="relative flex-1 rounded-t-lg py-2 font-medium uppercase transition-colors"
+            @click="tab = 'people'"><Users class="mr-1.5 h-3.5 w-3.5 shrink-0" />People</button>
+          <button v-if="isAdminRole(me.role)" class="relative flex flex-1 items-center justify-center whitespace-nowrap rounded-t-lg py-2 font-medium uppercase transition-colors"
             :class="[isAdminRole(me.role) ? 'px-3' : 'px-2', tab === 'admin' ? 'bg-white text-slate-900' : 'hdr-fg text-slate-600 hover:bg-slate-300/60']"
-            @click="tab = 'admin'">{{ me.role === 'developer' ? 'Dev' : 'Admin' }}</button>
+            @click="tab = 'admin'"><component :is="me.role === 'developer' ? Code : ShieldCheck" class="mr-1.5 h-3.5 w-3.5 shrink-0" />{{ me.role === 'developer' ? 'Dev' : 'Admin' }}</button>
         </nav>
       </div>
       <div class="relative mb-1.5 flex items-center gap-1 text-sm">

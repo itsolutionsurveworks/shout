@@ -15,7 +15,7 @@ const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString([],
       <p v-if="showName" class="text-xs font-semibold text-emerald-700">{{ name }}</p>
       <div class="mb-1 rounded border-l-4 border-emerald-500 bg-slate-100 px-2 py-1">
         <p class="text-2xs font-semibold text-emerald-700">You</p>
-        <MessageContent :text="row.message" text-class="line-clamp-2 break-words text-xs text-slate-600" img-class="max-h-16 max-w-full rounded" />
+        <MessageContent :text="row.message" text-class="line-clamp-2 break-words text-xs text-slate-600" img-class="max-h-16 max-w-full rounded" :max-h="64" />
       </div>
       <p class="flex items-center gap-1.5 pr-12 text-sm font-medium text-slate-900"><CircleCheck class="h-4 w-4 shrink-0 text-emerald-600" />{{ replyLabel(row.status) }}</p>
       <span class="absolute bottom-1 right-2 text-2xs text-slate-500">{{ time(row.acknowledged_at ?? row.delivered_at ?? row.created_at) }}</span>

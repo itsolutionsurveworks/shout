@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Users } from "lucide-vue-next";
+import GroupAvatar from "./GroupAvatar.vue";
 import type { Profile } from "../lib/supabase";
 import { chatTime, type ChatGroup, type ChatMessage, type ChatTarget } from "../lib/thread";
 import UserAvatar from "./UserAvatar.vue";
@@ -20,7 +20,7 @@ const emit = defineEmits<{ select: [t: ChatTarget] }>();
 const query = ref("");
 const filter = ref<"all" | "online" | "groups">("all");
 
-interface Row { target: ChatTarget; name: string; sub: string; user?: Profile; last?: ChatMessage; online: boolean }
+interface Row { target: ChatTarget; name: string; sub: string; user?: Profile; avatar_url?: string | null; last?: ChatMessage; online: boolean }
 
 const rows = computed<Row[]>(() => {
   const q = query.value.toLowerCase();
@@ -28,7 +28,7 @@ const rows = computed<Row[]>(() => {
   for (const g of props.groups) {
     const t: ChatTarget = { kind: "group", id: g.id };
     const onlineCount = g.members.filter((m) => props.online.has(m)).length;
-    out.push({ target: t, name: g.name, sub: `${onlineCount} of ${g.members.length} online`, last: props.forTarget(t).slice(-1)[0], online: onlineCount > 0 });
+    out.push({ target: t, name: g.name, avatar_url: g.avatar_url, sub: `${onlineCount} of ${g.members.length} online`, last: props.forTarget(t).slice(-1)[0], online: onlineCount > 0 });
   }
   for (const u of props.people) {
     const t: ChatTarget = { kind: "user", id: u.id };
@@ -67,9 +67,7 @@ const isSel = (r: Row) => props.selected?.kind === r.target.kind && props.select
           <span class="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white"
             :class="r.online ? 'bg-emerald-500' : 'bg-slate-300'" />
         </UserAvatar>
-        <span v-else class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-          <Users class="h-3.5 w-3.5" />
-        </span>
+        <GroupAvatar v-else :group="{ name: r.name, avatar_url: r.avatar_url }" size-class="h-8 w-8" icon-class="h-3.5 w-3.5" />
         <span class="min-w-0 flex-1">
           <span class="flex items-baseline justify-between gap-2">
             <span class="truncate text-xs font-medium text-slate-900">{{ r.name }}</span>

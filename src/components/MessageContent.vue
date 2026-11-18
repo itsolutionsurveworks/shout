@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { gifUrl } from "../lib/media";
+import { gifUrl, imageSize, photoBox } from "../lib/media";
 
 // zoomable: clicking a GIF opens it full size in a centered lightbox. Turned off where the
 // GIF already shows at full size (the incoming shout popup).
-const props = withDefaults(defineProps<{ text: string; textClass?: string; imgClass?: string; zoomable?: boolean }>(), { zoomable: true });
+const props = withDefaults(defineProps<{ text: string; textClass?: string; imgClass?: string; maxH?: number; zoomable?: boolean }>(), { zoomable: true });
 const gif = computed(() => gifUrl(props.text));
+// Photos carry their size, so the box is reserved (with a pulsing skeleton) until the image loads.
+const size = computed(() => imageSize(props.text));
+const loaded = ref(false);
+watch(gif, () => (loaded.value = false));
+const boxStyle = computed(() => size.value ? photoBox(size.value.w, size.value.h, props.maxH) : undefined);
+const capStyle = computed(() => props.maxH && !size.value ? { maxHeight: `${props.maxH}px` } : undefined);
 const open = ref(false);
 
 function onKey(e: KeyboardEvent) { if (e.key === "Escape") open.value = false; }
@@ -18,18 +24,24 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
 <template>
   <template v-if="gif">
-    <img :src="gif" alt="GIF" referrerpolicy="no-referrer"
-      class="rounded-md" :class="[imgClass ?? 'max-h-56 max-w-full', zoomable ? 'cursor-zoom-in' : '']"
+    <div v-if="size" class="overflow-hidden rounded-md bg-slate-200/70" :class="[loaded ? '' : 'animate-pulse', imgClass?.includes('mx-auto') ? 'mx-auto' : '']"
+      :style="boxStyle">
+      <img :src="gif" alt="Image" referrerpolicy="no-referrer"
+        class="h-full w-full object-contain transition-opacity duration-300" :class="[loaded ? 'opacity-100' : 'opacity-0', zoomable ? 'cursor-zoom-in' : '']"
+        @load="loaded = true" @error="loaded = true" @click="zoomable && (open = true)" />
+    </div>
+    <img v-else :src="gif" alt="Image" referrerpolicy="no-referrer" :style="capStyle"
+      class="rounded-md object-contain" :class="[imgClass ?? 'max-h-56 max-w-full', zoomable ? 'cursor-zoom-in' : '']"
       @click="zoomable && (open = true)" />
-    <!-- Teleported to the main area only (not the app header/footer), so it covers just the content. -->
-    <Teleport to="#app-main">
+    <!-- Teleported to the body and fixed, so it covers the whole app including the header. -->
+    <Teleport to="body">
       <Transition name="gif-zoom">
-        <div v-if="open && zoomable" class="absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/80 p-6"
-          role="dialog" aria-label="GIF preview" @click.self="open = false">
+        <div v-if="open && zoomable" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 p-6"
+          role="dialog" aria-label="Image preview" @click.self="open = false">
           <button type="button" class="absolute right-4 top-4 rounded-full bg-white/90 px-3 py-1 text-sm font-medium text-slate-800 shadow hover:bg-white"
             aria-label="Close" @click="open = false">Close</button>
-          <img :src="gif" alt="GIF" referrerpolicy="no-referrer"
-            class="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl" @click="open = false" />
+          <img :src="gif" alt="Image" referrerpolicy="no-referrer"
+            class="max-h-full max-w-full rounded-lg object-contain shadow-2xl" @click="open = false" />
         </div>
       </Transition>
     </Teleport>
