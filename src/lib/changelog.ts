@@ -12,6 +12,13 @@ export const SIGNATURE = "Regards, [SE/DEV] Vince";
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.1.10",
+    date: "2026-11-18",
+    fixed: [
+      "GIF search now works in the release build",
+    ],
+  },
+  {
     version: "0.1.9",
     date: "2026-11-18",
     added: [
