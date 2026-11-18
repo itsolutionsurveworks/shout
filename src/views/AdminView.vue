@@ -11,6 +11,7 @@ import ReceiptIcon from "../components/ReceiptIcon.vue";
 import UserAvatar from "../components/UserAvatar.vue";
 import ScrollHint from "../components/ScrollHint.vue";
 import AuditInfo from "../components/AuditInfo.vue";
+import MessageContent from "../components/MessageContent.vue";
 
 // isDev: the signed-in user has the developer role, so the Dev section is listed.
 const props = defineProps<{ isDev: boolean; headerMessage: HeaderMessage | null }>();
@@ -577,7 +578,9 @@ onUnmounted(() => {
                     <span class="block truncate text-slate-500" :title="n.to">{{ n.to }}</span>
                     <span v-if="n.toSub" class="block truncate text-2xs text-slate-400">{{ n.toSub }}</span>
                   </td>
-                  <td class="truncate px-2 py-2.5 text-slate-700" :title="n.message">{{ n.message }}</td>
+                  <td class="truncate px-2 py-2.5 text-slate-700" :title="n.message">
+                    <MessageContent :text="n.message" text-class="truncate text-sm" img-class="max-h-12 max-w-full rounded" />
+                  </td>
                   <td class="px-2 py-2.5">
                     <span class="flex items-center gap-1.5 text-2xs" :class="n.receipt === 'seen' ? 'text-sky-600' : 'text-slate-500'">
                       <ReceiptIcon :receipt="n.receipt" />

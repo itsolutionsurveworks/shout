@@ -5,6 +5,7 @@ import type { Profile } from "../lib/supabase";
 import { chatTime, type ChatGroup, type ChatMessage, type ChatTarget } from "../lib/thread";
 import UserAvatar from "./UserAvatar.vue";
 import ReceiptIcon from "./ReceiptIcon.vue";
+import { gifUrl } from "../lib/media";
 
 const props = defineProps<{
   people: Profile[];
@@ -77,7 +78,7 @@ const isSel = (r: Row) => props.selected?.kind === r.target.kind && props.select
           <span class="flex items-center gap-1 text-2xs text-slate-500">
             <template v-if="r.last">
               <ReceiptIcon :receipt="r.last.receipt" />
-              <span class="truncate">{{ r.last.message }}</span>
+              <span class="truncate">{{ gifUrl(r.last.message) ? "GIF" : r.last.message }}</span>
             </template>
             <span v-else class="truncate">{{ r.sub }}</span>
           </span>

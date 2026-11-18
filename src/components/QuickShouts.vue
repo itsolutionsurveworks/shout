@@ -4,6 +4,7 @@ import { Check, Pencil, Plus, Settings2, Trash2, X } from "lucide-vue-next";
 import { supabase, type Profile, type QuickShout } from "../lib/supabase";
 import { onRefresh } from "../lib/refresh";
 import { cached } from "../lib/cache";
+import { SHOUT_MAX } from "../lib/limits";
 
 const props = defineProps<{ me: Profile; disabled?: boolean }>();
 const emit = defineEmits<{ send: [text: string]; error: [message: string] }>();
@@ -130,7 +131,7 @@ onUnmounted(() => {
       <ul class="flex max-h-40 flex-col gap-1 overflow-auto">
         <li v-for="q in items" :key="q.id" class="flex items-center gap-1.5">
           <template v-if="editingId === q.id">
-            <input v-model="editText" maxlength="500" autofocus
+            <input v-model="editText" :maxlength="SHOUT_MAX" autofocus
               class="min-w-0 flex-1 rounded-md border border-emerald-500 bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
               @keydown.enter.prevent="saveEdit(q)" @keydown.esc="editingId = null" />
             <button :disabled="!editText.trim()" title="Save" aria-label="Save"
@@ -152,7 +153,7 @@ onUnmounted(() => {
         </li>
       </ul>
       <form class="mt-3 flex gap-1.5" @submit.prevent="add">
-        <input v-model="draft" maxlength="500" placeholder="New quick shout…"
+        <input v-model="draft" :maxlength="SHOUT_MAX" placeholder="New quick shout…"
           class="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
         <button :disabled="!draft.trim()" title="Add" aria-label="Add"
           class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:opacity-40">

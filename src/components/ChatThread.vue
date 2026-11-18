@@ -9,6 +9,7 @@ import MessageBubble from "./MessageBubble.vue";
 import MessageInfo from "./MessageInfo.vue";
 import QuickShouts from "./QuickShouts.vue";
 import GroupMembersPanel from "./GroupMembersPanel.vue";
+import { SHOUT_MAX } from "../lib/limits";
 
 const props = defineProps<{
   me: Profile;
@@ -61,7 +62,18 @@ function sendGif(url: string) {
 }
 
 function toBottom() {
+  atBottom.value = true;
   nextTick(() => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight; });
+}
+// Whether the user is at (or near) the newest message. Tracked on scroll so a GIF finishing
+// its load can keep the view pinned to the bottom, instead of leaving a gap below.
+const atBottom = ref(true);
+function updateAtBottom() {
+  const el = scroller.value;
+  if (el) atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+}
+function onMediaLoad() {
+  if (atBottom.value) toBottom();
 }
 // Follow the whole timeline, not just my messages: new sends, incoming replies and the
 // initial history load all change the entry count, so the latest item stays in view.
@@ -70,10 +82,10 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
 </script>
 
 <template>
-  <div class="relative flex min-h-0 flex-1 flex-col">
+  <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
     <!-- Header and chat wallpaper. The info panel is confined to this area, so it covers the
          header but stops above the quick shouts. -->
-    <div class="relative flex min-h-0 flex-1 flex-col">
+    <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <!-- Light backdrop over the thread while the emoji/GIF picker is open; click to dismiss. -->
       <div v-if="showPicker" class="absolute inset-0 z-10 bg-slate-900/10" @click="showPicker = false"></div>
       <header class="flex items-center gap-3 bg-slate-100 px-4 py-2.5">
@@ -87,7 +99,8 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
         </div>
       </header>
 
-      <div ref="scroller" class="min-h-0 flex-1 space-y-1.5 overflow-auto bg-slate-50 px-4 py-3">
+      <div ref="scroller" class="min-h-0 flex-1 space-y-1.5 overflow-auto bg-slate-50 px-4 py-3"
+        @scroll="updateAtBottom" @load.capture="onMediaLoad">
         <p v-if="!items.length" class="mx-auto mt-8 w-fit rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-slate-600 shadow-sm">
           No shouts yet. Tap a quick shout below to send it.
         </p>
@@ -111,7 +124,7 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
       <!-- Input bar: quick shout toggle on the left, custom message, send. -->
       <Transition name="picker-rise">
         <div v-show="showPicker" class="absolute bottom-full left-3 right-3 z-20 mb-2">
-          <EmojiGifPicker @emoji="(e) => (draft += e)" @gif="sendGif" />
+          <EmojiGifPicker @emoji="(e) => (draft = (draft + e).slice(0, SHOUT_MAX))" @gif="sendGif" />
         </div>
       </Transition>
 
@@ -129,8 +142,14 @@ watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; sho
           @click="showQuick = !showQuick; showPicker = false">
           <MessageCircle class="h-4 w-4" />
         </button>
-        <input v-model="draft" maxlength="500" :disabled="!canSend" placeholder="Type a custom message"
-          class="flex-1 rounded-lg bg-white px-3 py-2 text-sm focus:outline-none disabled:bg-slate-50" />
+        <div class="relative flex-1">
+          <input v-model="draft" :maxlength="SHOUT_MAX" :disabled="!canSend" placeholder="Type a custom message"
+            class="w-full rounded-lg bg-white py-2 pl-3 pr-14 text-sm focus:outline-none disabled:bg-slate-50" />
+          <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-2xs tabular-nums"
+            :class="draft.length >= SHOUT_MAX ? 'font-semibold text-red-600' : 'text-slate-500'">
+            {{ draft.length }}/{{ SHOUT_MAX }}
+          </span>
+        </div>
         <button :disabled="!draft.trim() || !canSend"
           class="rounded-full bg-emerald-600 p-2.5 text-white hover:bg-emerald-700 disabled:opacity-40" title="Send">
           <Send class="h-4 w-4" />

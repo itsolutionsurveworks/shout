@@ -22,6 +22,8 @@ import { LogOut, Menu, RotateCw, UserRoundPen } from "lucide-vue-next";
 // The "alert" window is a small frameless popup that shows only the shout modal.
 // It runs this same app, so it renders just NotificationModal instead of the dashboard.
 const isAlertWindow = "__TAURI_INTERNALS__" in window && getCurrentWindow().label === "alert";
+// The alert window is transparent so the popup's rounded corners show through.
+if (isAlertWindow) document.documentElement.style.background = "transparent";
 
 const me = ref<Profile | null>(null);
 // Last known profile of the signed-in user. Used at startup to show the app before the network answers.

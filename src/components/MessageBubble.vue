@@ -11,7 +11,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "nume
 
 <template>
   <div class="flex flex-col" :class="msg.mine ? 'items-end' : 'items-start'">
-    <div class="relative max-w-[85%] rounded-lg px-2.5 py-1.5 shadow-sm"
+    <div class="relative max-w-[85%] rounded-lg p-2.5 shadow-sm"
       :class="msg.mine ? 'rounded-tr-none bg-emerald-100' : 'rounded-tl-none bg-white'">
       <p v-if="senderName" class="text-xs font-semibold text-emerald-700">{{ senderName }}</p>
       <MessageContent :text="msg.message" text-class="text-sm text-slate-900" />
