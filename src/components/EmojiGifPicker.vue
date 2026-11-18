@@ -36,12 +36,12 @@ watch(q, () => { clearTimeout(timer); timer = setTimeout(load, 350); });
       <!-- Category strip -->
       <div class="mb-2 flex shrink-0 gap-1 border-b border-slate-200 pb-2">
         <button v-for="(c, i) in EMOJI_CATEGORIES" :key="c.name" type="button" :title="c.name" :aria-label="c.name"
-          class="flex h-10 flex-1 items-center justify-center rounded-md text-2xl leading-none transition-colors"
+          class="flex h-10 flex-1 items-center justify-center rounded-md text-2xl leading-normal transition-colors"
           :class="category === i ? 'bg-slate-200' : 'hover:bg-slate-100'" @click="category = i">{{ c.icon }}</button>
       </div>
       <p class="mb-1 shrink-0 text-xs font-medium uppercase text-slate-500">{{ EMOJI_CATEGORIES[category].name }}</p>
-      <div class="grid min-h-0 flex-1 grid-cols-6 content-start gap-1 overflow-auto">
-        <button v-for="e in currentEmojis" :key="e" type="button" class="flex h-12 items-center justify-center rounded-lg text-3xl leading-none hover:bg-slate-100" @click="emit('emoji', e)">{{ e }}</button>
+      <div class="grid min-h-0 flex-1 grid-cols-6 content-start gap-1 overflow-auto p-0.5">
+        <button v-for="e in currentEmojis" :key="e" type="button" class="flex h-12 items-center justify-center rounded-lg text-3xl leading-normal hover:bg-slate-100" @click="emit('emoji', e)">{{ e }}</button>
       </div>
     </div>
     <div v-else class="flex min-h-0 flex-1 flex-col">
