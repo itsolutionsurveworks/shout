@@ -616,9 +616,6 @@ onUnmounted(() => {
           </Teleport>
           <div v-if="auditRows.length > PAGE_SIZE" class="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
             <span class="tabular-nums">{{ page * PAGE_SIZE + 1 }}–{{ Math.min((page + 1) * PAGE_SIZE, auditRows.length) }} of {{ auditRows.length }}</span>
-            <button v-if="isDev && canLoadMore" :disabled="loadingMore" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40" @click="loadMoreLogs">
-              {{ loadingMore ? "Loading…" : "Load " + 200 + " more" }}
-            </button>
             <div class="flex items-center gap-1">
               <button :disabled="page === 0" title="Previous page" aria-label="Previous page" @click="page--"
                 class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40">
@@ -630,6 +627,9 @@ onUnmounted(() => {
                 <ChevronRight class="h-4 w-4" />
               </button>
             </div>
+            <button v-if="isDev && canLoadMore" :disabled="loadingMore" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40" @click="loadMoreLogs">
+              {{ loadingMore ? "Loading…" : "Load " + 200 + " more" }}
+            </button>
           </div>
           </div>
         </template>
