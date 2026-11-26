@@ -81,5 +81,8 @@ const backoffFetch: typeof fetch = async (input, init) => {
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
-  { auth: { persistSession: true, autoRefreshToken: true }, global: { fetch: backoffFetch } },
+  { auth: { persistSession: true, autoRefreshToken: true }, global: { fetch: backoffFetch },
+    // Websocket reconnects back off too (1s, 2s, 5s, 10s, 30s, then every 60s), so a blocked or
+    // down project is not hit with a handshake every second by every open app.
+    realtime: { reconnectAfterMs: (tries: number) => [1_000, 2_000, 5_000, 10_000, 30_000][tries - 1] ?? 60_000 } },
 );

@@ -168,6 +168,7 @@ const CATCH_UP_MS = 30_000; // egress: Realtime is primary, this only recovers d
 let catchUp: ReturnType<typeof setInterval> | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let stopped = false;
+let retries = 0;
 
 function ago(iso: string) {
   const s = Math.max(0, Math.round((now.value - Date.parse(iso)) / 1000));
@@ -187,13 +188,13 @@ function connect() {
     (p) => enqueue(p.new as Notification),
   );
   channel.subscribe((status) => {
-    if (status === "SUBSCRIBED") return loadPending(); // also re-runs after reconnects
+    if (status === "SUBSCRIBED") { retries = 0; return loadPending(); } // also re-runs after reconnects
     if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
       const dead = channel;
       channel = null;
       if (dead) supabase.removeChannel(dead);
       clearTimeout(retry);
-      retry = setTimeout(connect, 3_000);
+      retry = setTimeout(connect, Math.min(3_000 * 2 ** retries++, 120_000)); // exponential backoff
     }
   });
 }

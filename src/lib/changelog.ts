@@ -12,6 +12,13 @@ export const SIGNATURE = "Regards, [SE/DEV] Vince";
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.1.14",
+    date: "2026-11-27",
+    fixed: [
+      "Live connection no longer retries every second when the server is unavailable",
+    ],
+  },
+  {
     version: "0.1.13",
     date: "2026-11-27",
     changed: [
