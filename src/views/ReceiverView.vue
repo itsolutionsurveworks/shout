@@ -63,7 +63,17 @@ const channel = supabase
   .channel(`receiver-inbox-${props.me.id}`)
   .on("postgres_changes",
     { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${props.me.id}` },
-    () => loadQuietly());
+    (p) => {
+      // Egress: merge the pushed row instead of refetching the whole history on every event.
+      const n = p.new as Notification | undefined;
+      if (!n || !("id" in n)) return;
+      const i = shouts.value.findIndex((s) => s.id === n.id);
+      if (i >= 0) shouts.value[i] = { ...shouts.value[i], ...n };
+      else {
+        shouts.value = [n, ...shouts.value].slice(0, 100);
+        if (!senders.value[n.sender_id]) loadQuietly(); // need the new sender's name
+      }
+    });
 
 // Refresh button: reload the shout history (KeepAlive: only while shown).
 let offRefresh: (() => void) | null = null;
@@ -73,7 +83,7 @@ onDeactivated(() => offRefresh?.());
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   channel.subscribe((s) => { if (s === "SUBSCRIBED") loadQuietly(); });
-  timer = setInterval(loadQuietly, 8000);
+  timer = setInterval(() => { if (!document.hidden) loadQuietly(); }, 120_000);
   window.addEventListener("focus", loadQuietly);
 });
 onUnmounted(() => {

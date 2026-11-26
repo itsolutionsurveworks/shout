@@ -164,7 +164,7 @@ async function loadPending() {
   for (const n of (data ?? []) as Notification[]) await enqueue(n);
 }
 
-const CATCH_UP_MS = 5_000;
+const CATCH_UP_MS = 30_000; // egress: Realtime is primary, this only recovers dropped events
 let catchUp: ReturnType<typeof setInterval> | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let stopped = false;

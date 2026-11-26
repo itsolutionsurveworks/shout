@@ -342,7 +342,7 @@ let pending: ReturnType<typeof setTimeout> | undefined;
 function refresh() {
   if (!active) return;
   clearTimeout(pending);
-  pending = setTimeout(quietLoad, 150); // coalesce bursts (e.g. "select all") into one fetch
+  pending = setTimeout(quietLoad, 5000); // egress: coalesce bursts of events into one fetch
 }
 const channel = supabase
   .channel("admin-live")
@@ -355,7 +355,7 @@ const channel = supabase
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   channel.subscribe();
-  timer = setInterval(refresh, 30000);
+  timer = setInterval(() => { if (!document.hidden) refresh(); }, 180_000);
   window.addEventListener("focus", refresh);
   document.addEventListener("pointerdown", closeStatusMenuOnOutside);
 });

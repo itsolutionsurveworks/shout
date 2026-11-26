@@ -34,7 +34,7 @@ export function useThread(meId: Ref<string> | string) {
       .select("*")
       .or(`sender_id.eq.${id()},recipient_id.eq.${id()}`)
       .order("created_at", { ascending: false })
-      .limit(500);
+      .limit(200);
     // On failure keep the rows we already show (the cached copy) instead of blanking them.
     if (error) throw error;
     const map: Record<string, Notification> = {};
@@ -91,7 +91,8 @@ export function useThread(meId: Ref<string> | string) {
     // still show up if an event is dropped.
     start() {
       channel.subscribe((s) => { if (s === "SUBSCRIBED") quietLoad(); });
-      timer = setInterval(quietLoad, 8000);
+      // Egress: Realtime does the live work; this is only a slow safety net, skipped while hidden.
+      timer = setInterval(() => { if (!document.hidden) quietLoad(); }, 120_000);
       window.addEventListener("focus", quietLoad);
     },
     stop() {
