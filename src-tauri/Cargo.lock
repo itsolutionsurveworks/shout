@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "office-shout"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "serde_json",
  "tauri",

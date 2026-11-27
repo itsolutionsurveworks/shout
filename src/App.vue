@@ -186,8 +186,12 @@ onMounted(async () => {
   refreshedAt.value = new Date();
   loading.value = false;
   sub = supabase.auth.onAuthStateChange((_e, s) => {
+    // Egress: token refreshes and window-focus SIGNED_IN events fire often; only reload the
+    // profile when the signed-in user actually changed.
+    const uid = s?.user.id ?? null;
+    if (uid && uid === me.value?.id) return;
     // Defer: don't await supabase calls inside the callback.
-    setTimeout(() => loadProfile(s?.user.id ?? null), 0);
+    setTimeout(() => loadProfile(uid), 0);
   }).data.subscription;
 });
 onUnmounted(() => {

@@ -12,6 +12,13 @@ export const SIGNATURE = "Regards, [SE/DEV] Vince";
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.1.15",
+    date: "2026-11-27",
+    changed: [
+      "Fewer background requests: your profile is only reloaded when the signed-in user changes",
+    ],
+  },
+  {
     version: "0.1.14",
     date: "2026-11-27",
     fixed: [
