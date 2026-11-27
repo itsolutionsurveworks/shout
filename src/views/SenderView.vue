@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, toRef } from "vue";
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 import { MessageCircle, ShieldAlert } from "lucide-vue-next";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
-import { cached } from "../lib/cache";
-import { useThread, type ChatGroup, type ChatTarget } from "../lib/thread";
+import { cached, isFresh, markFetched, MINUTES } from "../lib/cache";
+import { onActive } from "../lib/active";
+import { PAGE, useThread, type ChatGroup, type ChatTarget } from "../lib/thread";
 import ChatList from "../components/ChatList.vue";
 import ChatThread from "../components/ChatThread.vue";
 
@@ -29,6 +30,7 @@ async function load() {
   // A failed request keeps the last known list on screen; the error goes to the caller.
   if (p.error) throw p.error;
   if (g.error) throw g.error;
+  markFetched(`people:${props.me.id}`);
   people.value = (p.data ?? []) as Profile[];
   groups.value = (g.data ?? []).map((x: any) => ({
     id: x.id,
@@ -49,7 +51,19 @@ const recipients = computed(() => {
   return list.filter((u) => onlineIds.value.has(u.id));
 });
 const canSend = computed(() => recipients.value.length > 0);
-const messages = computed(() => thread.forTarget(target.value));
+// Only the newest PAGE messages of a conversation are shown; "Load earlier messages" widens the window
+// (from the local cache first, then from the server) so nobody scrolls through unlimited history.
+const visible = ref(PAGE);
+watch(target, () => { visible.value = PAGE; });
+const allMessages = computed(() => thread.forTarget(target.value));
+const messages = computed(() => allMessages.value.slice(-visible.value));
+const canEarlier = computed(() => allMessages.value.length > messages.value.length || thread.canLoadEarlier(target.value));
+async function showEarlier() {
+  visible.value += PAGE;
+  if (allMessages.value.length < visible.value && target.value) {
+    try { await thread.loadEarlier(target.value); } catch (e) { showToast(e instanceof Error ? e.message : "Could not load earlier messages."); }
+  }
+}
 
 async function send(message: string) {
   const list = recipients.value;
@@ -88,12 +102,22 @@ let offRefresh: (() => void) | null = null;
 onActivated(() => { offRefresh = onRefresh(() => Promise.all([load(), thread.load()])); });
 onDeactivated(() => offRefresh?.());
 
-onMounted(() => {
+// People and groups change rarely: while the cached copy is under 10 minutes old, opening or returning to
+// the app does not refetch them (the Refresh button always does).
+const PEOPLE_TTL = 10 * MINUTES;
+const loadPeopleIfStale = () => {
+  if (people.value.length && isFresh(`people:${props.me.id}`, PEOPLE_TTL)) return;
   load().catch((e) => console.error("Load failed", e)); // keep showing cached data
+};
+let offActive: (() => void) | undefined;
+onMounted(() => {
+  loadPeopleIfStale();
+  offActive = onActive(loadPeopleIfStale, PEOPLE_TTL);
   thread.start();
 });
 onUnmounted(() => {
   offRefresh?.();
+  offActive?.();
   clearTimeout(toastTimer);
   thread.stop();
 });
@@ -108,7 +132,8 @@ onUnmounted(() => {
     </section>
 
     <ChatThread v-if="user || group" :me="me" :user="user" :group="group" :people="people" :online="onlineIds"
-      :messages="messages" :can-send="canSend" @send="send" @error="showToast"
+      :messages="messages" :can-send="canSend" :can-earlier="canEarlier" :loading-earlier="thread.loadingEarlier.value"
+      @earlier="showEarlier" @send="send" @error="showToast"
       @group-photo="(id, url) => { const g = groups.find((x) => x.id === id); if (g) g.avatar_url = url; }"
       @group-rename="(id, name) => { const g = groups.find((x) => x.id === id); if (g) g.name = name; }" />
     <section v-else class="flex flex-1 flex-col items-center justify-center bg-slate-50 text-center text-slate-500">

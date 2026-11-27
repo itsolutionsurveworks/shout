@@ -5,7 +5,8 @@ import { supabase, type HeaderMessage, type Profile, type Role } from "../lib/su
 import DevPanel from "../components/DevPanel.vue";
 import { onlineIds } from "../lib/presence";
 import { onRefresh } from "../lib/refresh";
-import { cached } from "../lib/cache";
+import { onActive } from "../lib/active";
+import { cached, isFresh, markFetched, MINUTES } from "../lib/cache";
 import { aggregateReceipt, receiptLabel, type Receipt } from "../lib/receipts";
 import ReceiptIcon from "../components/ReceiptIcon.vue";
 import UserAvatar from "../components/UserAvatar.vue";
@@ -52,13 +53,14 @@ function closeStatusMenuOnOutside(e: PointerEvent) {
 }
 
 // Throws when a request fails (the refresh button reports it); the cached lists stay on screen.
-async function load() {
+async function load(withLogs = true) {
   const [u, g] = await Promise.all([
     supabase.from("profiles").select("*").order("full_name"),
     supabase.from("groups").select("id, name, group_members(user_id)").order("name"),
   ]);
   if (u.error) throw u.error;
   if (g.error) throw g.error;
+  markFetched("admin:people");
   users.value = (u.data ?? []) as Profile[];
   groups.value = (g.data ?? []).map((x: any) => ({
     id: x.id, name: x.name, members: x.group_members.map((m: any) => m.user_id),
@@ -66,8 +68,11 @@ async function load() {
   if (!groups.value.some((g) => g.id === selectedGroupId.value)) {
     selectedGroupId.value = groups.value[0]?.id ?? null;
   }
-  await loadLogs();
+  if (withLogs && auditShown()) await loadLogs();
 }
+// The audit log is fetched only for developers, and only while its tab is open.
+const auditShown = () => props.isDev && section.value === "audit";
+watch(section, (v) => { if (v === "audit" && props.isDev) quietLoad(); });
 // For background triggers (timers, realtime, focus): failures are logged, not thrown.
 function quietLoad() {
   return load().catch((e) => console.error("Load failed", e));
@@ -124,7 +129,7 @@ async function loadLogs() {
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 watch(query, () => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(loadLogs, 300);
+  if (auditShown()) searchTimer = setTimeout(loadLogs, 300);
 });
 
 async function updateUser(u: Profile, patch: Partial<{ full_name: string; role: Role; department: string }>) {
@@ -313,9 +318,11 @@ watch(usersPageCount, (c) => { if (usersPage.value > c - 1) usersPage.value = c 
 const nav = computed(() => [
   { key: "users" as const, label: "Users", icon: UserRound, count: users.value.length },
   { key: "groups" as const, label: "Groups", icon: UsersRound, count: groups.value.length },
-  { key: "audit" as const, label: "Audit log", icon: ScrollText, count: null },
-  // Developers only: sits below Audit log.
-  ...(props.isDev ? [{ key: "dev" as const, label: "Dev", icon: Code, count: null }] : []),
+  // Developers only: the audit log and the Dev panel. Admins never fetch notifications of other people.
+  ...(props.isDev ? [
+    { key: "audit" as const, label: "Audit log", icon: ScrollText, count: null },
+    { key: "dev" as const, label: "Dev", icon: Code, count: null },
+  ] : []),
 ]);
 const title = computed(() => nav.value.find((n) => n.key === section.value)?.label ?? "");
 
@@ -326,7 +333,8 @@ let offRefresh: (() => void) | null = null;
 onActivated(async () => {
   active = true;
   offRefresh = onRefresh(load);
-  await quietLoad();
+  // Switching tabs no longer refetches: the list stays live through Realtime, and the Refresh button forces a load.
+  if (!(users.value.length && isFresh("admin:people", ADMIN_TTL))) await quietLoad();
   snapshotMemberOrder();
 });
 onDeactivated(() => {
@@ -339,31 +347,51 @@ watch(selectedGroupId, snapshotMemberOrder);
 // while this tab is visible. Refetch only; the frozen member order is left alone.
 let active = false;
 let pending: ReturnType<typeof setTimeout> | undefined;
+const ADMIN_TTL = 10 * MINUTES;
 function refresh() {
   if (!active) return;
   clearTimeout(pending);
   pending = setTimeout(quietLoad, 5000); // egress: coalesce bursts of events into one fetch
 }
+// Egress: a shout used to make every admin refetch the whole audit log. The pushed row is merged
+// into the list instead (names come from the people already loaded). Searches stay as they were.
+function mergeLog(n: any) {
+  if (!active || !auditShown() || !n || !("id" in n) || query.value.trim()) return;
+  const name = (id: string) => ({ full_name: users.value.find((u) => u.id === id)?.full_name ?? "Someone" });
+  const row = { ...n, sender: name(n.sender_id), recipient: name(n.recipient_id) };
+  const i = logs.value.findIndex((x) => x.id === n.id);
+  if (i >= 0) logs.value[i] = { ...logs.value[i], ...row };
+  else logs.value = [row, ...logs.value];
+}
+// Profile changes (e.g. an app reporting its version on launch) only need the people list, not the log.
+let pendingPeople: ReturnType<typeof setTimeout> | undefined;
+function refreshPeople() {
+  if (!active) return;
+  clearTimeout(pendingPeople);
+  pendingPeople = setTimeout(() => load(false).catch((e) => console.error("Load failed", e)), 5000);
+}
 const channel = supabase
   .channel("admin-live")
-  .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, refresh)
+  .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, refreshPeople)
   .on("postgres_changes", { event: "*", schema: "public", table: "groups" }, refresh)
-  .on("postgres_changes", { event: "*", schema: "public", table: "group_members" }, refresh)
-  .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, refresh);
+  .on("postgres_changes", { event: "*", schema: "public", table: "group_members" }, refresh);
+// Only developers listen to every shout (for the live audit log); the database now refuses admins anyway.
+if (props.isDev) channel.on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, (p) => mergeLog(p.new));
 
 // Safety net for dropped realtime events and for returning to the window.
-let timer: ReturnType<typeof setInterval> | undefined;
+let offActive: (() => void) | undefined;
 onMounted(() => {
   channel.subscribe();
-  timer = setInterval(() => { if (!document.hidden) refresh(); }, 180_000);
-  window.addEventListener("focus", refresh);
+  // Egress: no polling timer. Returning to the app refetches only when the cached lists are older than ADMIN_TTL;
+  // live edits (people, groups, memberships) arrive through Realtime and always reload.
+  offActive = onActive(() => { if (!(users.value.length && isFresh("admin:people", ADMIN_TTL))) refresh(); });
   document.addEventListener("pointerdown", closeStatusMenuOnOutside);
 });
 onUnmounted(() => {
   offRefresh?.();
-  clearInterval(timer);
+  offActive?.();
   clearTimeout(pending);
-  window.removeEventListener("focus", refresh);
+  clearTimeout(pendingPeople);
   document.removeEventListener("pointerdown", closeStatusMenuOnOutside);
   supabase.removeChannel(channel);
 });
@@ -561,7 +589,7 @@ onUnmounted(() => {
         </template>
 
         <!-- Audit log -->
-        <template v-if="section === 'audit'">
+        <template v-if="section === 'audit' && isDev">
           <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
           <ScrollHint :card="false">
             <table class="w-full table-fixed text-xs">

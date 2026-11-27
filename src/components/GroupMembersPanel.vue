@@ -51,7 +51,7 @@ async function setPhoto(e: Event) {
   const path = `${props.group.id}/${Date.now()}.webp`;
   try {
     const blob = await toSquareWebp(file);
-    const up = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/webp" });
+    const up = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/webp", cacheControl: "31536000" });
     if (up.error) throw up.error;
     const url = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
     const db = await supabase.from("groups").update({ avatar_url: url }).eq("id", props.group.id);

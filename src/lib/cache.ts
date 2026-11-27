@@ -58,3 +58,16 @@ export function clearCache() {
   }
   keys.forEach((k) => localStorage.removeItem(k));
 }
+
+// Freshness windows. A loader calls markFetched(name) when it succeeds; startup and "app became active"
+// refreshes call isFresh(name, ttl) and skip the request while the cached copy is still young.
+// The manual Refresh button never checks this, so it always fetches. Cleared with the cache on sign-out.
+const FETCHED_PREFIX = `${PREFIX}fetched:`;
+export function markFetched(name: string) {
+  try { localStorage.setItem(FETCHED_PREFIX + name, String(Date.now())); } catch { /* storage unavailable */ }
+}
+export function isFresh(name: string, ttlMs: number): boolean {
+  const at = Number(localStorage.getItem(FETCHED_PREFIX + name));
+  return at > 0 && Date.now() - at < ttlMs;
+}
+export const MINUTES = 60_000;

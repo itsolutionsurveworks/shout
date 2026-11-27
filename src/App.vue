@@ -7,7 +7,7 @@ import { startPresence, stopPresence } from "./lib/presence";
 import { checkForUpdates, startUpdateChecks, stopUpdateChecks, updateActivity, updateNotice } from "./lib/updater";
 import { applyTheme, isThemeKey, THEMES, type ThemeKey } from "./lib/themes";
 import { onRefresh, refreshAll, refreshedAt, refreshing, refreshState, refreshStep } from "./lib/refresh";
-import { cached, clearCache } from "./lib/cache";
+import { cached, clearCache, isFresh, markFetched, MINUTES } from "./lib/cache";
 import LoginView from "./views/LoginView.vue";
 import SenderView from "./views/SenderView.vue";
 import ReceiverView from "./views/ReceiverView.vue";
@@ -40,6 +40,7 @@ async function loadHeaderMessage() {
   const { data, error } = await supabase.from("header_message").select("message, enabled").eq("id", 1).single();
   if (error) return error;
   headerMessage.value = (data as HeaderMessage | null) ?? null;
+  markFetched("header");
   return null;
 }
 
@@ -70,11 +71,13 @@ async function loadTheme() {
   const { data, error } = await supabase.from("app_theme").select("theme_key").eq("id", 1).single();
   if (error) return error;
   setTheme(data?.theme_key);
+  markFetched("theme"); // changes also arrive live over Realtime, so this only covers missed events
   return null;
 }
 let themeChannel: ReturnType<typeof supabase.channel> | null = null;
 let updateChannel: ReturnType<typeof supabase.channel> | null = null;
 
+const REPORTED_VERSION_KEY = "oas-reported-version";
 async function loadProfile(userId: string | null) {
   if (!userId) {
     stopPresence();
@@ -88,12 +91,14 @@ async function loadProfile(userId: string | null) {
   if (error) return error;
   me.value = data as Profile | null;
   cachedProfile.value = me.value;
+  markFetched("profile");
   // Only the main window announces presence; the alert popup just listens for shouts.
   if (me.value && !isAlertWindow) startPresence(me.value);
   // Tell the database which build this account is running (shown in the Dev tab's App versions card).
   if (me.value && !isAlertWindow) {
     supabase.rpc("report_app_version", { v: __APP_VERSION__ }).then(({ error }) => {
       if (error) console.error("Version report failed", error);
+      else localStorage.setItem(REPORTED_VERSION_KEY, __APP_VERSION__);
     });
   }
   return null;
@@ -181,7 +186,16 @@ onMounted(async () => {
     if (!isAlertWindow) startPresence(me.value);
     loading.value = false;
   }
-  await Promise.all([loadProfile(userId), loadHeaderMessage(), loadTheme()]);
+  // Startup reuses the cached profile, header message and theme while they are young (the Refresh
+  // button always fetches). A different user, or a first run, always loads.
+  // A new build always reloads the profile once, because that is what reports the app version.
+  const profileFresh = !!userId && cachedProfile.value?.id === userId && isFresh("profile", 30 * MINUTES)
+    && localStorage.getItem(REPORTED_VERSION_KEY) === __APP_VERSION__;
+  await Promise.all([
+    profileFresh ? null : loadProfile(userId),
+    isFresh("header", 30 * MINUTES) && headerMessage.value ? null : loadHeaderMessage(),
+    isFresh("theme", 60 * MINUTES) ? null : loadTheme(),
+  ]);
   refreshState.value = "ok";
   refreshedAt.value = new Date();
   loading.value = false;

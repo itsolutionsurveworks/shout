@@ -3,7 +3,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { Check, Pencil, Plus, Settings2, Trash2, X } from "lucide-vue-next";
 import { supabase, type Profile, type QuickShout } from "../lib/supabase";
 import { onRefresh } from "../lib/refresh";
-import { cached } from "../lib/cache";
+import { cached, isFresh, markFetched, MINUTES } from "../lib/cache";
 import { SHOUT_MAX } from "../lib/limits";
 
 const props = defineProps<{ me: Profile; disabled?: boolean }>();
@@ -49,6 +49,7 @@ async function load() {
   } else {
     items.value = data as QuickShout[];
   }
+  markFetched(`quick:${props.me.id}`);
   loaded.value = true;
 }
 
@@ -94,7 +95,8 @@ async function remove(q: QuickShout) {
 // Quick shouts are part of the dashboard, so the refresh button reloads them too.
 let offRefresh: (() => void) | null = null;
 onMounted(() => {
-  load();
+  // Only this user edits their list: reuse the cached copy for 6 hours (Refresh always fetches).
+  if (!(items.value.length && isFresh(`quick:${props.me.id}`, 360 * MINUTES))) load();
   offRefresh = onRefresh(load);
 });
 onUnmounted(() => {

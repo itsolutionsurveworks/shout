@@ -12,6 +12,18 @@ export const SIGNATURE = "Regards, [SE/DEV] Vince";
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.1.17",
+    date: "2026-11-27",
+    added: [
+      "Links can be pasted and sent in full (up to 500 characters); normal messages stay at 100",
+      "Chats show the latest 30 messages, with a Load earlier messages button for older ones",
+    ],
+    changed: [
+      "Much lighter on the server: no background polling, and only changes are fetched when you return to the app",
+      "The audit log is now for developers only",
+    ],
+  },
+  {
     version: "0.1.16",
     date: "2026-11-27",
     changed: [

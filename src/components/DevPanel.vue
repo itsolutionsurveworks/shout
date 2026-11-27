@@ -3,6 +3,16 @@ import { computed, onMounted, ref, watch } from "vue";
 import { Bell, Check, CircleAlert, Eye, MessageSquareText, Palette, Send, Users } from "lucide-vue-next";
 import { supabase, type HeaderMessage, type Profile } from "../lib/supabase";
 import { THEMES, THEME_KEYS, isThemeKey, type ThemeKey } from "../lib/themes";
+import { budgetBlocked, GET_BUDGET_PER_HOUR, netStats, resetNetStats } from "../lib/netstats";
+
+// ---- Request meter (this device, since the app started) -----------------
+const meterRows = computed(() => Object.entries(netStats.value)
+  .map(([key, v]) => ({ key, ...v }))
+  .sort((a, b) => b.bytes - a.bytes)
+  .slice(0, 8));
+const meterTotal = computed(() => Object.values(netStats.value).reduce(
+  (t, v) => ({ requests: t.requests + v.requests, bytes: t.bytes + v.bytes }), { requests: 0, bytes: 0 }));
+const kb = (b: number) => (b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`);
 
 // Developer-only tools. The header message is shown left of the refresh button for everyone.
 const props = defineProps<{ headerMessage: HeaderMessage | null; users: Profile[] }>();
@@ -357,6 +367,24 @@ async function save() {
               {{ saving ? "Saving…" : "Save" }}
             </button>
           </div>
+        </section>
+
+        <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <header class="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
+            <div class="min-w-0 flex-1">
+              <h2 class="text-sm font-semibold text-slate-900">Request meter</h2>
+              <p class="text-xs text-slate-500">This device since launch: {{ meterTotal.requests }} requests, {{ kb(meterTotal.bytes) }}.
+                Reads are capped at {{ GET_BUDGET_PER_HOUR }}/hour<span v-if="budgetBlocked" class="font-semibold text-red-600"> ({{ budgetBlocked }} blocked)</span>.</p>
+            </div>
+            <button class="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50" @click="resetNetStats">Reset</button>
+          </header>
+          <ul v-if="meterRows.length" class="divide-y divide-slate-100 text-xs">
+            <li v-for="r in meterRows" :key="r.key" class="flex items-center justify-between gap-3 px-5 py-2">
+              <span class="min-w-0 flex-1 truncate font-mono text-slate-700" :title="r.key">{{ r.key }}</span>
+              <span class="shrink-0 tabular-nums text-slate-500">{{ r.requests }} × · {{ kb(r.bytes) }}</span>
+            </li>
+          </ul>
+          <p v-else class="px-5 py-3 text-xs text-slate-500">No requests yet.</p>
         </section>
       </div>
     </div>

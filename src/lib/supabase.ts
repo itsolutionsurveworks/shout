@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { allowRead, recordRequest } from "./netstats";
 
 export type Role = "admin" | "sender" | "receiver" | "developer";
 
@@ -56,7 +57,15 @@ export const REMEMBERED_EMAIL_KEY = "shout.rememberedEmail";
 // retrying on its poll timers, which burns quota and log ingestion while the project is down.
 let blockedUntil = 0;
 let failures = 0;
+const synthetic = (status: number, message: string) =>
+  new Response(JSON.stringify({ message }), { status, headers: { "Content-Type": "application/json" } });
+
 const backoffFetch: typeof fetch = async (input, init) => {
+  const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url);
+  const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+  const isApi = url.pathname.startsWith("/rest/v1/") || url.pathname.startsWith("/auth/v1/");
+  // Read budget (see netstats.ts): a runaway loop can't burn the quota. Writes are never limited.
+  if (isApi && method === "GET" && !allowRead()) return synthetic(429, "Read budget reached, try again later");
   if (Date.now() < blockedUntil) {
     return new Response(JSON.stringify({ message: "Backing off after repeated failures" }), {
       status: 429,
@@ -71,6 +80,13 @@ const backoffFetch: typeof fetch = async (input, init) => {
     const res = await fetch(input, init);
     if (res.status === 402 || res.status === 429 || res.status >= 500) trip();
     else failures = 0;
+    if (isApi) {
+      // Meter: size from Content-Length when the server sends it, otherwise from a copy of the body.
+      const len = Number(res.headers.get("content-length"));
+      const key = `${method} ${url.pathname.replace(/^\/(rest|auth)\/v1\//, "$1/")}`;
+      if (len > 0) recordRequest(key, len);
+      else res.clone().arrayBuffer().then((b) => recordRequest(key, b.byteLength)).catch(() => recordRequest(key, 0));
+    }
     return res;
   } catch (e) {
     trip();

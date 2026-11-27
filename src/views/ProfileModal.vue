@@ -74,7 +74,7 @@ async function upload(e: Event) {
   const path = `${props.me.id}/${Date.now()}.webp`;
   const { error: upErr } = await supabase.storage
     .from("avatars")
-    .upload(path, processed, { contentType: "image/webp", upsert: false });
+    .upload(path, processed, { contentType: "image/webp", upsert: false, cacheControl: "31536000" });
   if (upErr) {
     busy.value = false;
     return (error.value = upErr.message);

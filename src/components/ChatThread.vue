@@ -29,7 +29,7 @@ import MessageBubble from "./MessageBubble.vue";
 import MessageInfo from "./MessageInfo.vue";
 import QuickShouts from "./QuickShouts.vue";
 import GroupMembersPanel from "./GroupMembersPanel.vue";
-import { SHOUT_MAX } from "../lib/limits";
+import { clampShout, maxFor } from "../lib/limits";
 import { photoBox } from "../lib/media";
 
 const props = defineProps<{
@@ -40,8 +40,11 @@ const props = defineProps<{
   online: Set<string>;
   messages: ChatMessage[];
   canSend: boolean;
+  // "Load earlier messages" button: shown when older history may exist; loading while it is fetched.
+  canEarlier?: boolean;
+  loadingEarlier?: boolean;
 }>();
-const emit = defineEmits<{ send: [text: string]; error: [m: string]; groupPhoto: [id: string, url: string | null]; groupRename: [id: string, name: string] }>();
+const emit = defineEmits<{ earlier: []; send: [text: string]; error: [m: string]; groupPhoto: [id: string, url: string | null]; groupRename: [id: string, name: string] }>();
 
 const draft = ref("");
 // Quick shouts are open by default.
@@ -129,7 +132,7 @@ async function sendPhoto(e: Event) {
     pending.value = { url: URL.createObjectURL(blob), w, h };
     toBottom();
     const path = `${props.me.id}/${Date.now()}.webp`;
-    const { error } = await supabase.storage.from("chat-images").upload(path, blob, { contentType: "image/webp" });
+    const { error } = await supabase.storage.from("chat-images").upload(path, blob, { contentType: "image/webp", cacheControl: "31536000" });
     if (error) throw error;
     // The size rides along in the URL fragment so every viewer can reserve the right space before it loads.
     emit("send", `${supabase.storage.from("chat-images").getPublicUrl(path).data.publicUrl}#${w}x${h}`);
@@ -158,7 +161,20 @@ function onMediaLoad() {
 }
 // Follow the whole timeline, not just my messages: new sends, incoming replies and the
 // initial history load all change the entry count, so the latest item stays in view.
-watch(() => items.value.length, toBottom);
+// Pressing "Load earlier messages" adds rows ABOVE the current ones: keep what the user was reading in
+// place instead of jumping to the bottom.
+let earlierH = 0, earlierTop = 0;
+function loadEarlier() {
+  const el = scroller.value;
+  if (el) { earlierH = el.scrollHeight; earlierTop = el.scrollTop; }
+  emit("earlier");
+}
+watch(() => [items.value.length, items.value[0]?.m.key, items.value[items.value.length - 1]?.m.key] as const,
+  ([len, first, last], [oldLen, oldFirst, oldLast]) => {
+    if (len > oldLen && first !== oldFirst && last === oldLast) {
+      nextTick(() => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight - earlierH + earlierTop; });
+    } else if (len !== oldLen) toBottom();
+  });
 watch(() => [props.user?.id, props.group?.id], () => { infoKey.value = null; showMembers.value = false; toBottom(); }, { immediate: true });
 
 // Pressing anywhere outside the quick shout and emoji/GIF panels (and their toggle buttons)
@@ -204,6 +220,12 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePress
 
       <div ref="scroller" class="min-h-0 flex-1 space-y-1.5 overflow-auto bg-slate-50 px-4 py-3"
         @scroll="updateAtBottom" @load.capture="onMediaLoad">
+        <div v-if="canEarlier" class="flex justify-center pb-1">
+          <button type="button" :disabled="loadingEarlier" @click="loadEarlier"
+            class="rounded-full bg-white px-3 py-1 text-2xs font-medium text-slate-600 shadow-sm hover:bg-slate-100 disabled:opacity-50">
+            {{ loadingEarlier ? "Loading…" : "Load earlier messages" }}
+          </button>
+        </div>
         <p v-if="!items.length" class="mx-auto mt-8 w-fit rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-slate-600 shadow-sm">
           No shouts yet. Tap a quick shout below to send it.
         </p>
@@ -239,7 +261,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePress
       <!-- Input bar: quick shout toggle on the left, custom message, send. -->
       <Transition name="picker-rise">
         <div v-show="showPicker" ref="pickerPanel" class="absolute bottom-full left-3 right-3 z-20 mb-2 rounded-xl shadow-xl">
-          <EmojiGifPicker @emoji="(e) => (draft = (draft + e).slice(0, SHOUT_MAX))" @gif="sendGif" />
+          <EmojiGifPicker @emoji="(e) => (draft = clampShout(draft + e))" @gif="sendGif" />
         </div>
       </Transition>
 
@@ -273,11 +295,11 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutsidePress
           </button>
         </template>
         <div class="relative flex-1">
-          <input v-model="draft" :maxlength="SHOUT_MAX" :disabled="!canSend" placeholder="Type a custom message"
+          <input v-model="draft" @input="draft = clampShout(draft)" :disabled="!canSend" placeholder="Type a custom message"
             class="w-full rounded-lg bg-white py-2 pl-3 pr-14 text-sm focus:outline-none disabled:bg-slate-50" />
           <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-2xs tabular-nums"
-            :class="draft.length >= SHOUT_MAX ? 'font-semibold text-red-600' : 'text-slate-500'">
-            {{ draft.length }}/{{ SHOUT_MAX }}
+            :class="draft.length >= maxFor(draft) ? 'font-semibold text-red-600' : 'text-slate-500'">
+            {{ draft.length }}/{{ maxFor(draft) }}
           </span>
         </div>
         <button :disabled="!draft.trim() || !canSend"

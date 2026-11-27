@@ -4,7 +4,8 @@ import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { supabase, type Notification, type Profile } from "../lib/supabase";
 import UserAvatar from "../components/UserAvatar.vue";
 import MessageContent from "../components/MessageContent.vue";
-import { SHOUT_MAX } from "../lib/limits";
+import { clampShout, maxFor } from "../lib/limits";
+import { onActive } from "../lib/active";
 import { imageSize } from "../lib/media";
 
 const props = defineProps<{ me: Profile }>();
@@ -164,7 +165,7 @@ async function loadPending() {
   for (const n of (data ?? []) as Notification[]) await enqueue(n);
 }
 
-const CATCH_UP_MS = 30_000; // egress: Realtime is primary, this only recovers dropped events
+const CATCH_UP_MS = 180_000; // egress: Realtime is primary, this only recovers dropped events
 let catchUp: ReturnType<typeof setInterval> | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let stopped = false;
@@ -200,15 +201,18 @@ function connect() {
 }
 
 let clock: ReturnType<typeof setInterval> | undefined;
+let offActive: (() => void) | undefined;
 onMounted(() => {
   clock = setInterval(() => (now.value = Date.now()), 5_000);
   connect();
+  offActive = onActive(() => loadPending().catch((e) => console.error("Catch-up failed", e)), 30_000);
   catchUp = setInterval(() => loadPending().catch((e) => console.error("Catch-up failed", e)), CATCH_UP_MS);
 });
 onUnmounted(() => {
   stopped = true;
   clearInterval(clock);
   clearInterval(catchUp);
+  offActive?.();
   clearTimeout(retry);
   stopRepop();
   if (channel) supabase.removeChannel(channel);
@@ -255,11 +259,11 @@ onUnmounted(() => {
       <p v-if="replyError" class="text-center text-xs text-red-600">{{ replyError }}</p>
       <form v-if="replying" class="flex items-center gap-2" @submit.prevent="replyText.trim() && acknowledge(replyText.trim())">
         <div class="relative flex-1">
-          <input v-model="replyText" :maxlength="SHOUT_MAX" placeholder="Type a reply" autofocus
+          <input v-model="replyText" @input="replyText = clampShout(replyText)" placeholder="Type a reply" autofocus
             class="w-full rounded-lg bg-white py-2 pl-3 pr-14 text-sm focus:outline-none" />
           <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-2xs tabular-nums"
-            :class="replyText.length >= SHOUT_MAX ? 'font-semibold text-red-600' : 'text-slate-500'">
-            {{ replyText.length }}/{{ SHOUT_MAX }}
+            :class="replyText.length >= maxFor(replyText) ? 'font-semibold text-red-600' : 'text-slate-500'">
+            {{ replyText.length }}/{{ maxFor(replyText) }}
           </span>
         </div>
         <button type="button" class="rounded-full px-3 py-2 text-sm text-slate-600 hover:bg-slate-200" @click="replying = false">Cancel</button>
