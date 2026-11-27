@@ -12,6 +12,14 @@ export const SIGNATURE = "Regards, [SE/DEV] Vince";
 
 export const CHANGELOG: Release[] = [
   {
+    version: "0.1.16",
+    date: "2026-11-27",
+    changed: [
+      "Moved to a new server. You will be signed out once: sign in again with your usual email and password",
+      "Profile photos need to be uploaded again",
+    ],
+  },
+  {
     version: "0.1.15",
     date: "2026-11-27",
     changed: [
