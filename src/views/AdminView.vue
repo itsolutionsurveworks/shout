@@ -82,10 +82,11 @@ function quietLoad() {
 // search over every message (plus people and group names), capped at SEARCH_LIMIT rows.
 // Entries = audit lines (one per send). Rows are fetched in pages until enough entries exist:
 // a group shout is one row per recipient, so 200 entries can need far more than 200 rows.
-const LOG_STEP = 200;
+// Egress: 100 entries per step, fetched in pages of 100 rows; searches are capped at 300 rows.
+const LOG_STEP = 100;
 const logLimit = ref(LOG_STEP); // developers can raise this with "Load more"
-const ROW_PAGE = 1000;
-const MAX_SEARCH_ROWS = 20000; // safety cap for database-wide searches
+const ROW_PAGE = 100;
+const MAX_SEARCH_ROWS = 300; // safety cap for database-wide searches
 let logReq = 0;
 const batchKey = (n: any) => n.batch_id ?? n.id;
 async function loadLogs() {
@@ -126,11 +127,10 @@ async function loadLogs() {
     logs.value = rows;
   }
 }
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
-watch(query, () => {
-  clearTimeout(searchTimer);
-  if (auditShown()) searchTimer = setTimeout(loadLogs, 300);
-});
+// Egress: an audit search runs on Enter, not on every keystroke. Clearing the box reloads the
+// newest entries (one small request).
+function runSearch() { if (auditShown()) loadLogs(); }
+watch(query, (v) => { if (!v.trim() && auditShown()) loadLogs(); });
 
 async function updateUser(u: Profile, patch: Partial<{ full_name: string; role: Role; department: string }>) {
   const { error } = await supabase.from("profiles").update(patch).eq("id", u.id);
@@ -351,7 +351,7 @@ const ADMIN_TTL = 10 * MINUTES;
 function refresh() {
   if (!active) return;
   clearTimeout(pending);
-  pending = setTimeout(quietLoad, 5000); // egress: coalesce bursts of events into one fetch
+  pending = setTimeout(quietLoad, 60_000); // egress: a burst of edits becomes one fetch, at most once a minute
 }
 // Egress: a shout used to make every admin refetch the whole audit log. The pushed row is merged
 // into the list instead (names come from the people already loaded). Searches stay as they were.
@@ -368,7 +368,7 @@ let pendingPeople: ReturnType<typeof setTimeout> | undefined;
 function refreshPeople() {
   if (!active) return;
   clearTimeout(pendingPeople);
-  pendingPeople = setTimeout(() => load(false).catch((e) => console.error("Load failed", e)), 5000);
+  pendingPeople = setTimeout(() => load(false).catch((e) => console.error("Load failed", e)), 60_000);
 }
 const channel = supabase
   .channel("admin-live")
@@ -404,7 +404,7 @@ onUnmounted(() => {
       <div class="px-3 pb-3 pt-4">
         <div class="relative">
           <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <input v-model="query" :placeholder="`Search ${title.toLowerCase()}`"
+          <input v-model="query" :placeholder="`Search ${title.toLowerCase()}`" @keydown.enter="runSearch"
             class="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2.5 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
         </div>
       </div>
@@ -656,7 +656,7 @@ onUnmounted(() => {
               </button>
             </div>
             <button v-if="isDev && canLoadMore" :disabled="loadingMore" class="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40" @click="loadMoreLogs">
-              {{ loadingMore ? "Loading…" : "Load " + 200 + " more" }}
+              {{ loadingMore ? "Loading…" : "Load " + LOG_STEP + " more" }}
             </button>
           </div>
           </div>

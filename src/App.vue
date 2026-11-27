@@ -95,7 +95,9 @@ async function loadProfile(userId: string | null) {
   // Only the main window announces presence; the alert popup just listens for shouts.
   if (me.value && !isAlertWindow) startPresence(me.value);
   // Tell the database which build this account is running (shown in the Dev tab's App versions card).
-  if (me.value && !isAlertWindow) {
+  // Only when this build hasn't been reported yet: each report is a profile UPDATE, which Realtime pushes
+  // to every admin and makes them reload their lists.
+  if (me.value && !isAlertWindow && localStorage.getItem(REPORTED_VERSION_KEY) !== __APP_VERSION__) {
     supabase.rpc("report_app_version", { v: __APP_VERSION__ }).then(({ error }) => {
       if (error) console.error("Version report failed", error);
       else localStorage.setItem(REPORTED_VERSION_KEY, __APP_VERSION__);
